@@ -1,6 +1,6 @@
 # dbt-feature-lineage
 
-**A developer-first local explorer for dbt Core projects.**
+**Open-source developer tool for exploring dbt Core projects, model dependencies, SQL structure, and lineage.**
 
 **Status:** MVP · **Python:** 3.12 · **Runtime:** Docker · **License:** not yet defined
 
