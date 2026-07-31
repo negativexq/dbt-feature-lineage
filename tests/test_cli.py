@@ -37,3 +37,16 @@ def test_sources_only_output(sample_project_path: Path) -> None:
     assert len(payload["sources"]) == 1
     assert "models" not in payload
 
+
+def test_inspect_command_json(sample_project_path: Path) -> None:
+    result = runner.invoke(
+        app,
+        ["inspect", str(sample_project_path), "mart_customer_features", "--json"],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["model_name"] == "mart_customer_features"
+    assert len(payload["cte_names"]) >= 8
+    assert payload["join_count"] >= 4
+    assert any(column["output_name"] == "risk_segment" for column in payload["output_columns"])

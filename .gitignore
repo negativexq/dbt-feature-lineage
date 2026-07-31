@@ -9,3 +9,8 @@ dist/
 build/
 target/
 logs/
+*.log
+*.local
+.env
+profiles.yml
+.DS_Store

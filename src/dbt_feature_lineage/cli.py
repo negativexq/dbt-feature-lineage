@@ -8,10 +8,12 @@ from typing import Any
 
 import typer
 from rich.console import Console
+from rich.panel import Panel
 from rich.table import Table
 
-from dbt_feature_lineage.domain.models import DbtProject
+from dbt_feature_lineage.domain.models import DbtModelAnalysis, DbtProject
 from dbt_feature_lineage.loaders.project_loader import load_dbt_project
+from dbt_feature_lineage.services.model_analysis_service import inspect_model
 
 app = typer.Typer(no_args_is_help=True)
 console = Console()
@@ -79,6 +81,44 @@ def _render_summary(project: DbtProject, models_only: bool, sources_only: bool) 
         console.print(table)
 
 
+def _render_model_inspection(analysis: DbtModelAnalysis) -> None:
+    console.print(f"Model: {analysis.model_name}")
+    console.print(f"File path: {analysis.file_path}")
+    console.print(f"Layer: {analysis.layer}")
+    console.print(f"ref dependencies: {[dep.target_name for dep in analysis.ref_dependencies]}")
+    console.print(
+        "source dependencies: "
+        f"{[f'{dep.source_name}.{dep.target_name}' for dep in analysis.source_dependencies]}"
+    )
+    console.print(f"CTEs: {analysis.cte_names}")
+    console.print(f"Table aliases: {analysis.table_aliases}")
+    console.print(f"Join count: {analysis.join_count}")
+    console.print(f"Join types: {analysis.join_types}")
+    console.print(f"WHERE clause present: {analysis.has_where_clause}")
+    console.print(f"GROUP BY columns: {analysis.group_by_columns}")
+    console.print(f"Aggregate functions: {analysis.aggregate_functions}")
+    console.print(f"Window functions: {analysis.window_functions}")
+
+    output_table = Table(title="Output columns")
+    output_table.add_column("Output")
+    output_table.add_column("Type")
+    output_table.add_column("Expression")
+    output_table.add_column("Referenced columns")
+    for output_column in analysis.output_columns:
+        output_table.add_row(
+            output_column.output_name,
+            output_column.transformation_type,
+            output_column.original_sql_expression,
+            ", ".join(output_column.referenced_input_columns),
+        )
+    console.print(output_table)
+
+    if analysis.parsing_warnings:
+        console.print(Panel("\n".join(analysis.parsing_warnings), title="Parsing warnings"))
+
+    console.print(Panel(analysis.raw_sql, title="Raw SQL"))
+
+
 @app.command()
 def analyze(
     project_path: str = typer.Argument(..., help="Path to a local dbt project."),
@@ -97,6 +137,24 @@ def analyze(
         return
 
     _render_summary(project, models_only=models_only, sources_only=sources_only)
+
+
+@app.command()
+def inspect(
+    project_path: str = typer.Argument(..., help="Path to a local dbt project."),
+    model_name: str = typer.Argument(..., help="dbt model name to inspect."),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON."),
+) -> None:
+    """Inspect a single dbt model."""
+
+    resolved_path = Path(project_path).expanduser().resolve()
+    analysis = inspect_model(resolved_path, model_name)
+
+    if json_output:
+        typer.echo(json.dumps(analysis.model_dump(mode="json"), indent=2))
+        return
+
+    _render_model_inspection(analysis)
 
 
 def main() -> None:

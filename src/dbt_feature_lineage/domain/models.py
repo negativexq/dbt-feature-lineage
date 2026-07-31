@@ -8,6 +8,17 @@ from pydantic import BaseModel, ConfigDict, Field
 
 Layer = Literal["staging", "intermediate", "marts", "unknown"]
 DependencyType = Literal["ref", "source"]
+TransformationType = Literal[
+    "direct",
+    "rename",
+    "cast",
+    "aggregate",
+    "calculated",
+    "conditional",
+    "window",
+    "constant",
+    "unknown",
+]
 
 
 class DbtDependency(BaseModel):
@@ -64,3 +75,34 @@ class DbtProject(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     model_config = ConfigDict()
+
+
+class DbtOutputColumn(BaseModel):
+    """A parsed output column from a model select statement."""
+
+    output_name: str
+    original_sql_expression: str
+    transformation_type: TransformationType
+    referenced_input_columns: list[str] = Field(default_factory=list)
+
+
+class DbtModelAnalysis(BaseModel):
+    """Inspection details for a dbt model."""
+
+    model_name: str
+    file_path: str
+    relative_path: str
+    layer: Layer
+    raw_sql: str
+    ref_dependencies: list[DbtDependency] = Field(default_factory=list)
+    source_dependencies: list[DbtDependency] = Field(default_factory=list)
+    cte_names: list[str] = Field(default_factory=list)
+    table_aliases: dict[str, str] = Field(default_factory=dict)
+    join_count: int = 0
+    join_types: list[str] = Field(default_factory=list)
+    has_where_clause: bool = False
+    group_by_columns: list[str] = Field(default_factory=list)
+    aggregate_functions: list[str] = Field(default_factory=list)
+    window_functions: list[str] = Field(default_factory=list)
+    output_columns: list[DbtOutputColumn] = Field(default_factory=list)
+    parsing_warnings: list[str] = Field(default_factory=list)

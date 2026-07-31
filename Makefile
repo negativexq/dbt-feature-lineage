@@ -1,9 +1,12 @@
 COMPOSE = docker compose
 
-.PHONY: build up down shell test lint logs
+.PHONY: app build up down shell test lint logs
 
 build:
 	$(COMPOSE) build
+
+app:
+	$(COMPOSE) up app
 
 up:
 	$(COMPOSE) up -d
@@ -22,4 +25,3 @@ lint:
 
 logs:
 	$(COMPOSE) logs -f app
-
