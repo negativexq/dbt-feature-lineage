@@ -19,6 +19,9 @@ dependencies = [
   "rich",
 ]
 
+[project.scripts]
+dbt-feature-lineage = "dbt_feature_lineage.cli:main"
+
 [project.optional-dependencies]
 dev = [
   "pytest",
@@ -44,4 +47,3 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
-
