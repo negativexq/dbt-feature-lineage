@@ -1,0 +1,158 @@
+version: 2
+
+sources:
+  - name: core_banking
+    description: Core banking operational tables ingested from the raw landing zone.
+    database: "{{ env_var('DBT_SOURCE_DATABASE', 'banking_dev') }}"
+    schema: "{{ env_var('DBT_SOURCE_SCHEMA', 'raw_banking') }}"
+    tables:
+      - name: customers
+        identifier: "{{ var('customers_table', 'customers') }}"
+        description: Raw customer master records from the core banking platform.
+        columns:
+          - name: customer_id
+            description: Unique customer identifier from the source system.
+            tests:
+              - not_null
+              - unique
+          - name: first_name
+            description: Customer given name.
+            tests:
+              - not_null
+          - name: last_name
+            description: Customer family name.
+            tests:
+              - not_null
+          - name: date_of_birth
+            description: Customer birth date.
+          - name: onboarding_date
+            description: Date the customer was onboarded.
+            tests:
+              - not_null
+          - name: customer_status
+            description: Lifecycle status from the banking system.
+            tests:
+              - accepted_values:
+                  arguments:
+                    values: ["active", "inactive", "blocked", "closed"]
+          - name: country_code
+            description: ISO-like country code captured at onboarding.
+          - name: segment_code
+            description: Business segment assigned by the source system.
+      - name: accounts
+        identifier: "{{ var('accounts_table', 'accounts') }}"
+        description: Raw deposit and current account records.
+        columns:
+          - name: account_id
+            description: Unique account identifier.
+            tests:
+              - not_null
+              - unique
+          - name: customer_id
+            description: Owner customer identifier.
+            tests:
+              - not_null
+              - relationships:
+                  arguments:
+                    to: source('core_banking', 'customers')
+                    field: customer_id
+          - name: account_type
+            description: Deposit account product family.
+            tests:
+              - accepted_values:
+                  arguments:
+                    values: ["checking", "savings", "credit", "investment"]
+          - name: account_status
+            description: Operational account status.
+            tests:
+              - accepted_values:
+                  arguments:
+                    values: ["active", "dormant", "closed", "frozen"]
+          - name: current_balance
+            description: Balance currently reported by the source.
+          - name: opened_at
+            description: Account opening timestamp.
+          - name: closed_at
+            description: Account closure timestamp when applicable.
+      - name: transactions
+        identifier: "{{ var('transactions_table', 'transactions') }}"
+        description: Atomic account transaction fact table with debits and credits.
+        loaded_at_field: transaction_timestamp
+        freshness:
+          warn_after:
+            count: 24
+            period: hour
+          error_after:
+            count: 48
+            period: hour
+        columns:
+          - name: transaction_id
+            description: Unique transaction identifier.
+            tests:
+              - not_null
+              - unique
+          - name: account_id
+            description: Account impacted by the transaction.
+            tests:
+              - not_null
+              - relationships:
+                  arguments:
+                    to: source('core_banking', 'accounts')
+                    field: account_id
+          - name: customer_id
+            description: Customer identifier provided by the source.
+            tests:
+              - not_null
+          - name: transaction_timestamp
+            description: Timestamp when the transaction posted.
+            tests:
+              - not_null
+          - name: transaction_type
+            description: Business transaction classification.
+            tests:
+              - accepted_values:
+                  arguments:
+                    values: ["card_payment", "cash_withdrawal", "incoming_transfer", "outgoing_transfer", "fee", "loan_payment", "interest_credit", "salary"]
+          - name: amount
+            description: Signed transaction amount in source currency.
+            tests:
+              - not_null
+          - name: debit_credit_indicator
+            description: Directional indicator from the source system.
+            tests:
+              - accepted_values:
+                  arguments:
+                    values: ["debit", "credit"]
+      - name: loans
+        identifier: "{{ var('loans_table', 'loans') }}"
+        description: Raw loan contract records for retail banking customers.
+        columns:
+          - name: loan_id
+            description: Unique loan identifier.
+            tests:
+              - not_null
+              - unique
+          - name: customer_id
+            description: Borrower customer identifier.
+            tests:
+              - not_null
+              - relationships:
+                  arguments:
+                    to: source('core_banking', 'customers')
+                    field: customer_id
+          - name: loan_status
+            description: Status of the loan facility.
+            tests:
+              - accepted_values:
+                  arguments:
+                    values: ["active", "closed", "defaulted", "overdue"]
+          - name: principal_amount
+            description: Original approved principal amount.
+          - name: outstanding_amount
+            description: Current outstanding amount.
+          - name: interest_rate
+            description: Current contractual interest rate.
+          - name: loan_open_date
+            description: Date the loan became active.
+          - name: due_date
+            description: Next contractual due date or maturity date.

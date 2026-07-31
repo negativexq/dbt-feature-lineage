@@ -1,0 +1,16 @@
+sample_banking_dbt:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('DBT_PG_HOST', 'localhost') }}"
+      port: "{{ env_var('DBT_PG_PORT', '5432') | int }}"
+      user: "{{ env_var('DBT_PG_USER', 'postgres') }}"
+      password: "{{ env_var('DBT_PG_PASSWORD', 'postgres') }}"
+      dbname: "{{ env_var('DBT_PG_DBNAME', 'analytics') }}"
+      schema: "{{ env_var('DBT_PG_SCHEMA', 'dbt_sample_banking') }}"
+      threads: 4
+      connect_timeout: 10
+      keepalives_idle: 0
+      sslmode: prefer
+

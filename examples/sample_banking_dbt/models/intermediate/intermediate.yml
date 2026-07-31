@@ -1,0 +1,53 @@
+version: 2
+
+models:
+  - name: int_customer_daily_balance
+    description: Daily estimated balance snapshots and 30 day rolling balance metrics by customer.
+    columns:
+      - name: customer_id
+        description: Customer key.
+        tests:
+          - not_null
+      - name: balance_date
+        description: Snapshot date.
+        tests:
+          - not_null
+      - name: estimated_end_of_day_balance
+        description: Back-calculated end of day balance estimate.
+  - name: int_customer_spend_metrics
+    description: Rolling customer spend and transaction activity metrics across multiple windows.
+    columns:
+      - name: customer_id
+        description: Customer key.
+        tests:
+          - not_null
+          - unique
+      - name: total_spend_30d
+        description: Total spend across the last 30 days.
+      - name: last_transaction_date
+        description: Most recent transaction date.
+  - name: int_customer_credit_profile
+    description: Customer credit profile combining loans and revolving credit usage.
+    columns:
+      - name: customer_id
+        description: Customer key.
+        tests:
+          - not_null
+          - unique
+      - name: credit_utilization_ratio
+        description: Utilization of revolving credit facilities.
+      - name: overdue_loan_count
+        description: Count of overdue loans.
+  - name: int_customer_activity
+    description: Customer engagement, tenure, and digital activity profile.
+    columns:
+      - name: customer_id
+        description: Customer key.
+        tests:
+          - not_null
+          - unique
+      - name: customer_tenure_days
+        description: Days since onboarding.
+      - name: digital_activity_score
+        description: Heuristic score of recent customer digital engagement.
+

@@ -1,0 +1,32 @@
+name: sample_banking_dbt
+version: 1.0.0
+config-version: 2
+
+profile: sample_banking_dbt
+
+model-paths:
+  - models
+
+target-path: target
+clean-targets:
+  - target
+  - dbt_packages
+
+vars:
+  source_database: "{{ env_var('DBT_SOURCE_DATABASE', 'banking_dev') }}"
+  source_schema: "{{ env_var('DBT_SOURCE_SCHEMA', 'raw_banking') }}"
+  customers_table: "{{ var('customers_table', 'customers') }}"
+  accounts_table: "{{ var('accounts_table', 'accounts') }}"
+  transactions_table: "{{ var('transactions_table', 'transactions') }}"
+  loans_table: "{{ var('loans_table', 'loans') }}"
+
+models:
+  sample_banking_dbt:
+    +materialized: view
+    staging:
+      +materialized: view
+    intermediate:
+      +materialized: table
+    marts:
+      +materialized: table
+

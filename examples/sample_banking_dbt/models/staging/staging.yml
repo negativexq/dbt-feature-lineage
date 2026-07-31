@@ -1,0 +1,92 @@
+version: 2
+
+models:
+  - name: stg_customers
+    description: Standardized customer dimension from the raw core banking customer table.
+    columns:
+      - name: customer_id
+        description: Surrogate-ready customer key.
+        tests:
+          - not_null
+          - unique
+      - name: customer_status
+        description: Normalized customer lifecycle status.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ["active", "inactive", "blocked", "closed"]
+      - name: onboarding_date
+        description: Customer onboarding date.
+        tests:
+          - not_null
+  - name: stg_accounts
+    description: Standardized deposit and current accounts owned by customers.
+    columns:
+      - name: account_id
+        description: Unique account key.
+        tests:
+          - not_null
+          - unique
+      - name: customer_id
+        description: Customer that owns the account.
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_customers')
+                field: customer_id
+      - name: account_status
+        description: Normalized account status.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ["active", "dormant", "closed", "frozen"]
+  - name: stg_transactions
+    description: Standardized transaction fact table with debit, credit, and spend derivations.
+    columns:
+      - name: transaction_id
+        description: Unique transaction identifier.
+        tests:
+          - not_null
+          - unique
+      - name: account_id
+        description: Account linked to the transaction.
+        tests:
+          - relationships:
+              arguments:
+                to: ref('stg_accounts')
+                field: account_id
+      - name: customer_id
+        description: Customer linked to the transaction.
+        tests:
+          - relationships:
+              arguments:
+                to: ref('stg_customers')
+                field: customer_id
+      - name: debit_credit_indicator
+        description: Normalized debit or credit direction.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ["debit", "credit"]
+  - name: stg_loans
+    description: Standardized loan facilities and contractual loan measures.
+    columns:
+      - name: loan_id
+        description: Unique loan identifier.
+        tests:
+          - not_null
+          - unique
+      - name: customer_id
+        description: Borrower customer identifier.
+        tests:
+          - relationships:
+              arguments:
+                to: ref('stg_customers')
+                field: customer_id
+      - name: loan_status
+        description: Normalized loan status.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ["active", "closed", "defaulted", "overdue"]

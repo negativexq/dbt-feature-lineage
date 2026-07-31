@@ -1,0 +1,59 @@
+version: 2
+
+models:
+  - name: mart_customer_features
+    description: Primary customer feature mart used as the central feature engineering surface.
+    columns:
+      - name: customer_id
+        description: Customer key used for downstream feature serving.
+        tests:
+          - not_null
+          - unique
+      - name: risk_segment
+        description: Derived customer risk segment.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ["low", "medium", "high"]
+      - name: credit_utilization_ratio
+        description: Ratio of revolving balance to total available credit.
+      - name: delinquency_flag
+        description: Indicates whether the customer currently shows delinquency signals.
+  - name: mart_risk_features
+    description: Focused risk scoring mart derived from the main customer feature set.
+    columns:
+      - name: customer_id
+        description: Customer key.
+        tests:
+          - not_null
+          - unique
+          - relationships:
+              arguments:
+                to: ref('mart_customer_features')
+                field: customer_id
+      - name: risk_score
+        description: Heuristic numeric risk score.
+  - name: mart_customer_360
+    description: Customer 360 view combining profile attributes with high level feature metrics.
+    columns:
+      - name: customer_id
+        description: Customer key.
+        tests:
+          - not_null
+          - unique
+      - name: customer_full_name
+        description: Customer full name from the standardized customer dimension.
+  - name: mart_feature_store_export
+    description: Final delivery table for feature store export and downstream consumption.
+    columns:
+      - name: customer_id
+        description: Export key for customer level features.
+        tests:
+          - not_null
+          - unique
+          - relationships:
+              arguments:
+                to: ref('mart_customer_features')
+                field: customer_id
+      - name: exported_at
+        description: Export timestamp for the delivery snapshot.
