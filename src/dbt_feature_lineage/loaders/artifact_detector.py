@@ -54,7 +54,8 @@ def resolve_dbt_project(
         # Same as above: nothing to add beyond the fixed headline.
         return _load_static(resolved_path, reason="dbt_cli_unavailable")
 
-    if not _dbt_profile_available(resolved_path):
+    profiles_dir = _resolve_profiles_dir(resolved_path)
+    if profiles_dir is None:
         return _load_static(
             resolved_path,
             reason="no_profile",
@@ -63,7 +64,14 @@ def resolve_dbt_project(
 
     try:
         result = subprocess.run(
-            ["dbt", "parse", "--project-dir", str(resolved_path)],
+            [
+                "dbt",
+                "parse",
+                "--project-dir",
+                str(resolved_path),
+                "--profiles-dir",
+                str(profiles_dir),
+            ],
             capture_output=True,
             text=True,
             timeout=dbt_parse_timeout,
@@ -115,15 +123,27 @@ def _load_static(project_dir: Path, reason: str, message: str = "") -> DbtProjec
     return project
 
 
-def _dbt_profile_available(project_dir: Path) -> bool:
+def _resolve_profiles_dir(project_dir: Path) -> Path | None:
+    """Find the directory that has a profiles.yml `dbt parse` can use.
+
+    dbt's default profiles-dir resolution (env var, then ~/.dbt) doesn't
+    include the project directory itself, so we must pass `--profiles-dir`
+    explicitly whenever the profile lives next to dbt_project.yml -- dbt
+    would otherwise ignore it and fail (or worse, error out entirely if
+    ~/.dbt doesn't exist in the running environment).
+    """
+
     if (project_dir / "profiles.yml").exists():
-        return True
+        return project_dir
 
     profiles_dir_env = os.environ.get("DBT_PROFILES_DIR")
     if profiles_dir_env and (Path(profiles_dir_env) / "profiles.yml").exists():
-        return True
+        return Path(profiles_dir_env)
 
-    return _home_profiles_path().exists()
+    if _home_profiles_path().exists():
+        return _home_profiles_path().parent
+
+    return None
 
 
 def _home_profiles_path() -> Path:

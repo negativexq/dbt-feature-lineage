@@ -69,7 +69,7 @@ def test_generate_button_no_profile_shows_warning(
 ) -> None:
     project_dir = _write_minimal_project(tmp_path)
     monkeypatch.setattr(artifact_detector.shutil, "which", lambda _name: "/usr/local/bin/dbt")
-    monkeypatch.setattr(artifact_detector, "_dbt_profile_available", lambda _project_dir: False)
+    monkeypatch.setattr(artifact_detector, "_resolve_profiles_dir", lambda _project_dir: None)
 
     at = _run_app()
     at.text_input[0].set_value(str(project_dir)).run()
@@ -94,7 +94,9 @@ def test_generate_button_success_shows_manifest_success_message(
     staging_dir.mkdir(parents=True)
     (staging_dir / "stg_widgets.sql").write_text("select 1 as widget_id\n", encoding="utf-8")
     monkeypatch.setattr(artifact_detector.shutil, "which", lambda _name: "/usr/local/bin/dbt")
-    monkeypatch.setattr(artifact_detector, "_dbt_profile_available", lambda _project_dir: True)
+    monkeypatch.setattr(
+        artifact_detector, "_resolve_profiles_dir", lambda project_dir: project_dir
+    )
 
     manifest_payload = {
         "metadata": {
