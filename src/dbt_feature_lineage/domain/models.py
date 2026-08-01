@@ -42,6 +42,11 @@ class DbtModel(BaseModel):
     unique_id: str | None = None
     materialization: str | None = None
     compiled: bool = False
+    database: str | None = None
+    schema_name: str | None = Field(default=None, alias="schema")
+    alias: str | None = None
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class DbtSourceTable(BaseModel):

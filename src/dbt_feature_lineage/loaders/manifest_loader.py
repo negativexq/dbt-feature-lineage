@@ -98,6 +98,9 @@ def _parse_models(nodes: dict[str, Any], project_root: Path) -> list[DbtModel]:
                 unique_id=node.get("unique_id"),
                 materialization=node.get("config", {}).get("materialized"),
                 compiled=bool(node.get("compiled", False)),
+                database=node.get("database"),
+                schema_name=node.get("schema"),
+                alias=node.get("alias"),
             )
         )
     return sorted(models, key=lambda model: model.name)

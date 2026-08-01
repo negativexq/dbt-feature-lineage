@@ -176,6 +176,40 @@ def test_manifest_only_fields_are_populated(tmp_path: Path, manifest_data: dict[
     assert int_customer_activity.materialization == "table"
 
 
+def test_manifest_only_fields_include_physical_relation_identity(
+    tmp_path: Path, manifest_data: dict[str, Any]
+) -> None:
+    project_dir = _write_manifest(tmp_path, manifest_data)
+    project = load_dbt_project_from_manifest(project_dir)
+
+    stg_customers = _model(project, "stg_customers")
+    assert stg_customers.database == "banking_dev"
+    assert stg_customers.schema_name == "analytics_staging"
+    assert stg_customers.alias == "stg_customers"
+
+    int_customer_activity = _model(project, "int_customer_activity")
+    assert int_customer_activity.database == "banking_dev"
+    assert int_customer_activity.schema_name == "analytics_intermediate"
+    assert int_customer_activity.alias == "int_customer_activity"
+
+
+def test_physical_relation_fields_default_to_none_when_absent(
+    tmp_path: Path, manifest_data: dict[str, Any]
+) -> None:
+    node = manifest_data["nodes"]["model.sample_banking_dbt.stg_accounts"]
+    del node["database"]
+    del node["schema"]
+    del node["alias"]
+    project_dir = _write_manifest(tmp_path, manifest_data)
+
+    project = load_dbt_project_from_manifest(project_dir)
+
+    stg_accounts = _model(project, "stg_accounts")
+    assert stg_accounts.database is None
+    assert stg_accounts.schema_name is None
+    assert stg_accounts.alias is None
+
+
 # ---------------------------------------------------------------------------
 # raw_sql: compiled_code preferred, raw_code as fallback
 # ---------------------------------------------------------------------------
