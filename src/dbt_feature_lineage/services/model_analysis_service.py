@@ -5,14 +5,23 @@ from __future__ import annotations
 from pathlib import Path
 
 from dbt_feature_lineage.domain.models import DbtModelAnalysis, DbtProject
-from dbt_feature_lineage.loaders.project_loader import load_dbt_project
+from dbt_feature_lineage.loaders.artifact_detector import resolve_dbt_project
 from dbt_feature_lineage.parsers.query_flow_parser import analyze_query_flow
 
 
-def inspect_model(project_path: str | Path, model_name: str) -> DbtModelAnalysis:
-    """Inspect a single model inside a dbt project."""
+def inspect_model(
+    project_path: str | Path,
+    model_name: str,
+    generate_artifacts: bool = False,
+) -> DbtModelAnalysis:
+    """Inspect a single model inside a dbt project.
 
-    project = load_dbt_project(project_path)
+    Prefers a manifest.json (via resolve_dbt_project) over the static SQL
+    parser when one is available. In manifest mode, the inspected model's
+    raw_sql is dbt's own compiled_code rather than the raw Jinja source.
+    """
+
+    project = resolve_dbt_project(project_path, generate_artifacts=generate_artifacts)
     model = _find_model(project, model_name)
     analysis = analyze_query_flow(model.raw_sql)
     analysis.model_name = model.name
