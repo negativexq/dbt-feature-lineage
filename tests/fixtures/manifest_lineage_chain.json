@@ -1,0 +1,101 @@
+{
+  "metadata": {
+    "dbt_schema_version": "https://schemas.getdbt.com/dbt/manifest/v12.json",
+    "dbt_version": "1.8.8",
+    "generated_at": "2026-08-01T10:00:00.000000Z",
+    "invocation_id": "22222222-2222-2222-2222-222222222222",
+    "project_name": "lineage_chain_demo",
+    "project_id": "lineage_chain_demo_project_id",
+    "adapter_type": "postgres"
+  },
+  "nodes": {
+    "model.lineage_chain_demo.stg_customers": {
+      "resource_type": "model",
+      "unique_id": "model.lineage_chain_demo.stg_customers",
+      "name": "stg_customers",
+      "path": "staging/stg_customers.sql",
+      "original_file_path": "models/staging/stg_customers.sql",
+      "database": "banking_dev",
+      "schema": "analytics_staging",
+      "alias": "stg_customers",
+      "fqn": ["lineage_chain_demo", "staging", "stg_customers"],
+      "tags": [],
+      "config": {
+        "materialized": "view"
+      },
+      "raw_code": "select customer_id, first_name\nfrom {{ source('core_banking', 'customers') }}\n",
+      "compiled_code": "select customer_id, first_name\nfrom raw_banking.customers\n",
+      "compiled": true,
+      "depends_on": {
+        "macros": [],
+        "nodes": ["source.lineage_chain_demo.core_banking.customers"]
+      }
+    },
+    "model.lineage_chain_demo.int_customer_activity": {
+      "resource_type": "model",
+      "unique_id": "model.lineage_chain_demo.int_customer_activity",
+      "name": "int_customer_activity",
+      "path": "intermediate/int_customer_activity.sql",
+      "original_file_path": "models/intermediate/int_customer_activity.sql",
+      "database": "banking_dev",
+      "schema": "analytics_intermediate",
+      "alias": "int_customer_activity",
+      "fqn": ["lineage_chain_demo", "intermediate", "int_customer_activity"],
+      "tags": [],
+      "config": {
+        "materialized": "table"
+      },
+      "raw_code": "select customer_id, first_name\nfrom {{ ref('stg_customers') }}\n",
+      "compiled_code": "select customer_id, first_name\nfrom analytics_staging.stg_customers\n",
+      "compiled": true,
+      "depends_on": {
+        "macros": [],
+        "nodes": ["model.lineage_chain_demo.stg_customers"]
+      }
+    },
+    "model.lineage_chain_demo.mart_customer_overview": {
+      "resource_type": "model",
+      "unique_id": "model.lineage_chain_demo.mart_customer_overview",
+      "name": "mart_customer_overview",
+      "path": "marts/mart_customer_overview.sql",
+      "original_file_path": "models/marts/mart_customer_overview.sql",
+      "database": "banking_dev",
+      "schema": "analytics_marts",
+      "alias": "mart_customer_overview",
+      "fqn": ["lineage_chain_demo", "marts", "mart_customer_overview"],
+      "tags": [],
+      "config": {
+        "materialized": "table"
+      },
+      "raw_code": "select customer_id, first_name\nfrom {{ ref('int_customer_activity') }}\n",
+      "compiled_code": "select customer_id, first_name\nfrom analytics_intermediate.int_customer_activity\n",
+      "compiled": true,
+      "depends_on": {
+        "macros": [],
+        "nodes": ["model.lineage_chain_demo.int_customer_activity"]
+      }
+    }
+  },
+  "sources": {
+    "source.lineage_chain_demo.core_banking.customers": {
+      "resource_type": "source",
+      "unique_id": "source.lineage_chain_demo.core_banking.customers",
+      "source_name": "core_banking",
+      "name": "customers",
+      "identifier": "customers",
+      "database": "banking_dev",
+      "schema": "raw_banking",
+      "description": "Raw customer master records.",
+      "columns": {
+        "customer_id": {
+          "name": "customer_id",
+          "description": "Unique customer identifier."
+        },
+        "first_name": {
+          "name": "first_name",
+          "description": "Customer given name."
+        }
+      }
+    }
+  }
+}

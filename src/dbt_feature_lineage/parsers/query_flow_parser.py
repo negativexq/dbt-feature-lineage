@@ -134,7 +134,7 @@ def _extract_output_columns(
             DbtOutputColumn(
                 output_name=alias,
                 original_sql_expression=rendered_expression,
-                transformation_type=_detect_transformation_type(expression_node, alias),
+                transformation_type=detect_transformation_type(expression_node, alias),
                 referenced_input_columns=_extract_referenced_columns(expression_node),
             )
         )
@@ -173,7 +173,7 @@ def _is_select_star(select_expression: exp.Select) -> bool:
     )
 
 
-def _detect_transformation_type(
+def detect_transformation_type(
     expression_node: exp.Expression, output_name: str
 ) -> str:
     if isinstance(expression_node, exp.Literal):

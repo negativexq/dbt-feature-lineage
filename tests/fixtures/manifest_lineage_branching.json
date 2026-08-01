@@ -1,0 +1,124 @@
+{
+  "metadata": {
+    "dbt_schema_version": "https://schemas.getdbt.com/dbt/manifest/v12.json",
+    "dbt_version": "1.8.8",
+    "generated_at": "2026-08-01T10:00:00.000000Z",
+    "invocation_id": "33333333-3333-3333-3333-333333333333",
+    "project_name": "lineage_branching_demo",
+    "project_id": "lineage_branching_demo_project_id",
+    "adapter_type": "postgres"
+  },
+  "nodes": {
+    "model.lineage_branching_demo.stg_customers": {
+      "resource_type": "model",
+      "unique_id": "model.lineage_branching_demo.stg_customers",
+      "name": "stg_customers",
+      "path": "staging/stg_customers.sql",
+      "original_file_path": "models/staging/stg_customers.sql",
+      "database": "banking_dev",
+      "schema": "analytics_staging",
+      "alias": "stg_customers",
+      "fqn": ["lineage_branching_demo", "staging", "stg_customers"],
+      "tags": [],
+      "config": {
+        "materialized": "view"
+      },
+      "raw_code": "select customer_id, first_name\nfrom {{ source('core_banking', 'customers') }}\n",
+      "compiled_code": "select customer_id, first_name\nfrom raw_banking.customers\n",
+      "compiled": true,
+      "depends_on": {
+        "macros": [],
+        "nodes": ["source.lineage_branching_demo.core_banking.customers"]
+      }
+    },
+    "model.lineage_branching_demo.stg_legacy_customers": {
+      "resource_type": "model",
+      "unique_id": "model.lineage_branching_demo.stg_legacy_customers",
+      "name": "stg_legacy_customers",
+      "path": "staging/stg_legacy_customers.sql",
+      "original_file_path": "models/staging/stg_legacy_customers.sql",
+      "database": "banking_dev",
+      "schema": "analytics_staging",
+      "alias": "stg_legacy_customers",
+      "fqn": ["lineage_branching_demo", "staging", "stg_legacy_customers"],
+      "tags": [],
+      "config": {
+        "materialized": "view"
+      },
+      "raw_code": "select customer_id, first_name\nfrom {{ source('core_banking', 'legacy_customers') }}\n",
+      "compiled_code": "select customer_id, first_name\nfrom raw_banking.legacy_customers\n",
+      "compiled": true,
+      "depends_on": {
+        "macros": [],
+        "nodes": ["source.lineage_branching_demo.core_banking.legacy_customers"]
+      }
+    },
+    "model.lineage_branching_demo.mart_customer_merged": {
+      "resource_type": "model",
+      "unique_id": "model.lineage_branching_demo.mart_customer_merged",
+      "name": "mart_customer_merged",
+      "path": "marts/mart_customer_merged.sql",
+      "original_file_path": "models/marts/mart_customer_merged.sql",
+      "database": "banking_dev",
+      "schema": "analytics_marts",
+      "alias": "mart_customer_merged",
+      "fqn": ["lineage_branching_demo", "marts", "mart_customer_merged"],
+      "tags": [],
+      "config": {
+        "materialized": "table"
+      },
+      "raw_code": "select\n    coalesce(a.customer_id, b.customer_id) as customer_id,\n    coalesce(a.first_name, b.first_name) as first_name\nfrom {{ ref('stg_customers') }} as a\nleft join {{ ref('stg_legacy_customers') }} as b\n    on a.customer_id = b.customer_id\n",
+      "compiled_code": "select\n    coalesce(a.customer_id, b.customer_id) as customer_id,\n    coalesce(a.first_name, b.first_name) as first_name\nfrom analytics_staging.stg_customers as a\nleft join analytics_staging.stg_legacy_customers as b\n    on a.customer_id = b.customer_id\n",
+      "compiled": true,
+      "depends_on": {
+        "macros": [],
+        "nodes": [
+          "model.lineage_branching_demo.stg_customers",
+          "model.lineage_branching_demo.stg_legacy_customers"
+        ]
+      }
+    }
+  },
+  "sources": {
+    "source.lineage_branching_demo.core_banking.customers": {
+      "resource_type": "source",
+      "unique_id": "source.lineage_branching_demo.core_banking.customers",
+      "source_name": "core_banking",
+      "name": "customers",
+      "identifier": "customers",
+      "database": "banking_dev",
+      "schema": "raw_banking",
+      "description": "Primary raw customer master records.",
+      "columns": {
+        "customer_id": {
+          "name": "customer_id",
+          "description": "Unique customer identifier."
+        },
+        "first_name": {
+          "name": "first_name",
+          "description": "Customer given name."
+        }
+      }
+    },
+    "source.lineage_branching_demo.core_banking.legacy_customers": {
+      "resource_type": "source",
+      "unique_id": "source.lineage_branching_demo.core_banking.legacy_customers",
+      "source_name": "core_banking",
+      "name": "legacy_customers",
+      "identifier": "legacy_customers",
+      "database": "banking_dev",
+      "schema": "raw_banking",
+      "description": "Legacy system customer records, merged as a fallback.",
+      "columns": {
+        "customer_id": {
+          "name": "customer_id",
+          "description": "Unique customer identifier."
+        },
+        "first_name": {
+          "name": "first_name",
+          "description": "Customer given name."
+        }
+      }
+    }
+  }
+}

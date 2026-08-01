@@ -13,6 +13,16 @@ satisfied: manifest mode nests two levels deep (schema -> table), static
 mode is flat (bare model/source-placeholder name -> columns). A model or
 source that can't be placed at its mode's depth is never silently
 dropped -- see `ProjectSchema.schema_warnings`.
+
+sqlglot.lineage.lineage() eagerly parses *every* value in `sources` on
+every call (not just the ones actually referenced by the SQL being
+traced), so raw_sql going into `sources`/`raw_sql_by_model` must always
+be Jinja-preprocessed first via sql_parser.preprocess_dbt_sql() --
+otherwise a single unresolved `{{ ref()/source() }}` anywhere in the
+project (e.g. a manifest-mode model that `dbt parse` didn't compile,
+per v0.2's finding that compiled_code isn't always populated) would
+break lineage for every *other* model too. This is a no-op for SQL
+that's already clean (compiled manifest SQL has no Jinja left).
 """
 
 from __future__ import annotations
@@ -22,6 +32,7 @@ from typing import Any
 
 from dbt_feature_lineage.domain.models import DbtModel, DbtProject, DbtSource, DbtSourceTable
 from dbt_feature_lineage.parsers.query_flow_parser import analyze_query_flow
+from dbt_feature_lineage.parsers.sql_parser import preprocess_dbt_sql
 
 _UNKNOWN_TYPE = "unknown"
 
@@ -49,12 +60,29 @@ class ProjectSchema:
         schema/alias metadata was missing. Lineage touching them may
         resolve incompletely or incorrectly; this must be surfaced to the
         caller, never dropped silently (docs/v0.3-plan.md Risk 1).
+    raw_sql_by_model: model.name -> model.raw_sql, so callers (the lineage
+        engine) don't need to re-walk `project.models` to find the SQL for
+        a model they already know the name of.
+    columns_by_model: model.name -> its output column names, reusing the
+        same analyze_query_flow() pass already spent building `schema`
+        instead of re-parsing the model's SQL again downstream.
+    sources_key_to_model: maps every key registered in `sources` (bare
+        name, schema-qualified, database-qualified) back to the same
+        clean model.name. sqlglot's lineage.Node.source_name is always
+        one of these `sources` keys verbatim (it's set from whichever key
+        exp.expand() matched), never a dbt model name on its own -- so
+        resolving a Node's owning model from its source_name must go
+        through this map, not use source_name directly as the model name
+        (see lineage_service._convert_node).
     """
 
     schema: dict[str, Any] = field(default_factory=dict)
     sources: dict[str, str] = field(default_factory=dict)
     physical_to_model: dict[tuple[str | None, str], str | None] = field(default_factory=dict)
     schema_warnings: list[str] = field(default_factory=list)
+    raw_sql_by_model: dict[str, str] = field(default_factory=dict)
+    columns_by_model: dict[str, list[str]] = field(default_factory=dict)
+    sources_key_to_model: dict[str, str] = field(default_factory=dict)
 
 
 def build_project_schema(project: DbtProject) -> ProjectSchema:
@@ -74,18 +102,21 @@ def build_project_schema(project: DbtProject) -> ProjectSchema:
 
 
 def _add_model(project_schema: ProjectSchema, model: DbtModel, is_manifest_mode: bool) -> None:
-    columns = _model_columns(model, project_schema.schema_warnings)
+    preprocessed_sql, _ = preprocess_dbt_sql(model.raw_sql)
+    project_schema.raw_sql_by_model[model.name] = preprocessed_sql
+    columns = _model_columns(model, project_schema)
 
     if not is_manifest_mode:
         project_schema.schema[model.name] = columns
         project_schema.physical_to_model[(None, model.name)] = model.name
-        project_schema.sources[model.name] = model.raw_sql
+        project_schema.sources[model.name] = preprocessed_sql
+        project_schema.sources_key_to_model[model.name] = model.name
         return
 
     if model.schema_name and model.alias:
         project_schema.schema.setdefault(model.schema_name, {})[model.alias] = columns
         project_schema.physical_to_model[(model.schema_name, model.alias)] = model.name
-        _register_model_sources(project_schema.sources, model)
+        _register_model_sources(project_schema, model, preprocessed_sql)
         return
 
     # Can't place this model at the manifest mode's consistent nesting
@@ -98,30 +129,34 @@ def _add_model(project_schema: ProjectSchema, model: DbtModel, is_manifest_mode:
         "references to it, may resolve incorrectly)."
     )
     project_schema.physical_to_model[(None, model.name)] = model.name
-    project_schema.sources[model.name] = model.raw_sql
+    project_schema.sources[model.name] = preprocessed_sql
+    project_schema.sources_key_to_model[model.name] = model.name
 
 
-def _model_columns(model: DbtModel, schema_warnings: list[str]) -> dict[str, str]:
+def _model_columns(model: DbtModel, project_schema: ProjectSchema) -> dict[str, str]:
     analysis = analyze_query_flow(model.raw_sql)
     column_names = [column.output_name for column in analysis.output_columns]
+    project_schema.columns_by_model[model.name] = column_names
 
     if not column_names:
         detail = "; ".join(analysis.parsing_warnings) or "SQL did not parse as a SELECT"
-        schema_warnings.append(
+        project_schema.schema_warnings.append(
             f"No output columns could be determined for model '{model.name}' ({detail})."
         )
 
     return {name: _UNKNOWN_TYPE for name in column_names}
 
 
-def _register_model_sources(sources: dict[str, str], model: DbtModel) -> None:
-    sources[model.name] = model.raw_sql
-
-    qualified_name = f"{model.schema_name}.{model.alias}"
-    sources[qualified_name] = model.raw_sql
-
+def _register_model_sources(
+    project_schema: ProjectSchema, model: DbtModel, preprocessed_sql: str
+) -> None:
+    keys = [model.name, f"{model.schema_name}.{model.alias}"]
     if model.database:
-        sources[f"{model.database}.{qualified_name}"] = model.raw_sql
+        keys.append(f"{model.database}.{model.schema_name}.{model.alias}")
+
+    for key in keys:
+        project_schema.sources[key] = preprocessed_sql
+        project_schema.sources_key_to_model[key] = model.name
 
 
 def _add_source_table(
