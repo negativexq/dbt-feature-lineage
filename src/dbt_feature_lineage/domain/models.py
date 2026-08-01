@@ -39,6 +39,9 @@ class DbtModel(BaseModel):
     raw_sql: str
     ref_dependencies: list[DbtDependency] = Field(default_factory=list)
     source_dependencies: list[DbtDependency] = Field(default_factory=list)
+    unique_id: str | None = None
+    materialization: str | None = None
+    compiled: bool = False
 
 
 class DbtSourceTable(BaseModel):
@@ -62,6 +65,15 @@ class DbtSource(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class ArtifactStatus(BaseModel):
+    """Outcome of the manifest-vs-static artifact resolution for a project load."""
+
+    mode: Literal["manifest", "static"]
+    reason: str
+    message: str = ""
+    dbt_version: str | None = None
+
+
 class DbtProject(BaseModel):
     """A discovered dbt project."""
 
@@ -73,6 +85,8 @@ class DbtProject(BaseModel):
     models: list[DbtModel] = Field(default_factory=list)
     sources: list[DbtSource] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    source: Literal["manifest", "static"] = "static"
+    artifact_status: ArtifactStatus | None = None
 
     model_config = ConfigDict()
 

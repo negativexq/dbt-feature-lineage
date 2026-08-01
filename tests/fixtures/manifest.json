@@ -1,0 +1,124 @@
+{
+  "metadata": {
+    "dbt_schema_version": "https://schemas.getdbt.com/dbt/manifest/v12.json",
+    "dbt_version": "1.8.8",
+    "generated_at": "2026-08-01T10:00:00.000000Z",
+    "invocation_id": "11111111-1111-1111-1111-111111111111",
+    "project_name": "sample_banking_dbt",
+    "project_id": "sample_banking_dbt_project_id",
+    "adapter_type": "postgres"
+  },
+  "nodes": {
+    "model.sample_banking_dbt.stg_customers": {
+      "resource_type": "model",
+      "unique_id": "model.sample_banking_dbt.stg_customers",
+      "name": "stg_customers",
+      "path": "staging/stg_customers.sql",
+      "original_file_path": "models/staging/stg_customers.sql",
+      "database": "banking_dev",
+      "schema": "analytics_staging",
+      "alias": "stg_customers",
+      "fqn": ["sample_banking_dbt", "staging", "stg_customers"],
+      "tags": [],
+      "config": {
+        "materialized": "view"
+      },
+      "raw_code": "with source_customers as (\n    select customer_id, first_name, last_name, customer_status\n    from {{ source('core_banking', 'customers') }}\n)\n\nselect * from source_customers\n",
+      "compiled_code": "with source_customers as (\n    select customer_id, first_name, last_name, customer_status\n    from banking_dev.raw_banking.customers\n)\n\nselect * from source_customers\n",
+      "compiled": true,
+      "depends_on": {
+        "macros": [],
+        "nodes": ["source.sample_banking_dbt.core_banking.customers"]
+      }
+    },
+    "model.sample_banking_dbt.stg_accounts": {
+      "resource_type": "model",
+      "unique_id": "model.sample_banking_dbt.stg_accounts",
+      "name": "stg_accounts",
+      "path": "staging/stg_accounts.sql",
+      "original_file_path": "models/staging/stg_accounts.sql",
+      "database": "banking_dev",
+      "schema": "analytics_staging",
+      "alias": "stg_accounts",
+      "fqn": ["sample_banking_dbt", "staging", "stg_accounts"],
+      "tags": [],
+      "config": {
+        "materialized": "view"
+      },
+      "raw_code": "select account_id, customer_id, account_type, account_status\nfrom {{ source('core_banking', 'accounts') }}\n",
+      "compiled_code": null,
+      "compiled": false,
+      "depends_on": {
+        "macros": [],
+        "nodes": ["source.sample_banking_dbt.core_banking.accounts"]
+      }
+    },
+    "model.sample_banking_dbt.int_customer_activity": {
+      "resource_type": "model",
+      "unique_id": "model.sample_banking_dbt.int_customer_activity",
+      "name": "int_customer_activity",
+      "path": "intermediate/int_customer_activity.sql",
+      "original_file_path": "models/intermediate/int_customer_activity.sql",
+      "database": "banking_dev",
+      "schema": "analytics_intermediate",
+      "alias": "int_customer_activity",
+      "fqn": ["sample_banking_dbt", "intermediate", "int_customer_activity"],
+      "tags": [],
+      "config": {
+        "materialized": "table"
+      },
+      "raw_code": "with customers as (\n    select customer_id, customer_status\n    from {{ ref('stg_customers') }}\n),\n\naccounts as (\n    select customer_id, count(*) as account_count\n    from {{ ref('stg_accounts') }}\n    group by customer_id\n)\n\nselect\n    c.customer_id,\n    c.customer_status,\n    coalesce(a.account_count, 0) as account_count\nfrom customers as c\nleft join accounts as a\n    on c.customer_id = a.customer_id\n",
+      "compiled_code": "with customers as (\n    select customer_id, customer_status\n    from analytics_staging.stg_customers\n),\n\naccounts as (\n    select customer_id, count(*) as account_count\n    from analytics_staging.stg_accounts\n    group by customer_id\n)\n\nselect\n    c.customer_id,\n    c.customer_status,\n    coalesce(a.account_count, 0) as account_count\nfrom customers as c\nleft join accounts as a\n    on c.customer_id = a.customer_id\n",
+      "compiled": true,
+      "depends_on": {
+        "macros": [],
+        "nodes": [
+          "model.sample_banking_dbt.stg_customers",
+          "model.sample_banking_dbt.stg_accounts"
+        ]
+      }
+    }
+  },
+  "sources": {
+    "source.sample_banking_dbt.core_banking.customers": {
+      "resource_type": "source",
+      "unique_id": "source.sample_banking_dbt.core_banking.customers",
+      "source_name": "core_banking",
+      "name": "customers",
+      "identifier": "customers",
+      "database": "banking_dev",
+      "schema": "raw_banking",
+      "description": "Raw customer master records from the core banking platform.",
+      "columns": {
+        "customer_id": {
+          "name": "customer_id",
+          "description": "Unique customer identifier from the source system."
+        },
+        "first_name": {
+          "name": "first_name",
+          "description": "Customer given name."
+        }
+      }
+    },
+    "source.sample_banking_dbt.core_banking.accounts": {
+      "resource_type": "source",
+      "unique_id": "source.sample_banking_dbt.core_banking.accounts",
+      "source_name": "core_banking",
+      "name": "accounts",
+      "identifier": "accounts",
+      "database": "banking_dev",
+      "schema": "raw_banking",
+      "description": "Raw deposit and current account records.",
+      "columns": {
+        "account_id": {
+          "name": "account_id",
+          "description": "Unique account identifier."
+        },
+        "customer_id": {
+          "name": "customer_id",
+          "description": "Owner customer identifier."
+        }
+      }
+    }
+  }
+}
