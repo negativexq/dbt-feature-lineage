@@ -45,24 +45,20 @@ def resolve_dbt_project(
         return _load_manifest_or_fall_back(resolved_path, target_dir, reason="found")
 
     if not generate_artifacts:
-        return _load_static(
-            resolved_path, reason="not_generated", message="target/manifest.json not found."
-        )
+        # The "not_generated" reason is fully self-explanatory via its fixed
+        # UI headline (see ui.rendering._ARTIFACT_STATUS_MESSAGES) -- no
+        # extra message needed, so we don't restate it here.
+        return _load_static(resolved_path, reason="not_generated")
 
     if shutil.which("dbt") is None:
-        return _load_static(
-            resolved_path,
-            reason="dbt_cli_unavailable",
-            message="`dbt` executable not found on PATH.",
-        )
+        # Same as above: nothing to add beyond the fixed headline.
+        return _load_static(resolved_path, reason="dbt_cli_unavailable")
 
     if not _dbt_profile_available(resolved_path):
         return _load_static(
             resolved_path,
             reason="no_profile",
-            message=(
-                "No profiles.yml found for the project (project dir, DBT_PROFILES_DIR, ~/.dbt)."
-            ),
+            message="Checked the project directory, DBT_PROFILES_DIR, and ~/.dbt for profiles.yml.",
         )
 
     try:
@@ -73,23 +69,25 @@ def resolve_dbt_project(
             timeout=dbt_parse_timeout,
             check=False,
         )
-    except subprocess.TimeoutExpired as exc:
+    except subprocess.TimeoutExpired:
         return _load_static(
-            resolved_path, reason="dbt_parse_failed", message=f"`dbt parse` timed out: {exc}"
+            resolved_path,
+            reason="dbt_parse_failed",
+            message=f"`dbt parse` timed out after {dbt_parse_timeout}s.",
         )
 
     if result.returncode != 0:
         return _load_static(
             resolved_path,
             reason="dbt_parse_failed",
-            message=f"`dbt parse` exited with {result.returncode}: {result.stderr.strip()}",
+            message=f"Exit code {result.returncode}: {result.stderr.strip()}",
         )
 
     if not manifest_file.exists():
         return _load_static(
             resolved_path,
             reason="dbt_parse_failed",
-            message="`dbt parse` succeeded but did not produce target/manifest.json.",
+            message="`dbt parse` exited successfully but did not create target/manifest.json.",
         )
 
     return _load_manifest_or_fall_back(resolved_path, target_dir, reason="generated")
@@ -111,7 +109,7 @@ def _load_manifest_or_fall_back(
     return project
 
 
-def _load_static(project_dir: Path, reason: str, message: str) -> DbtProject:
+def _load_static(project_dir: Path, reason: str, message: str = "") -> DbtProject:
     project = load_dbt_project(project_dir)
     project.artifact_status = ArtifactStatus(mode="static", reason=reason, message=message)
     return project

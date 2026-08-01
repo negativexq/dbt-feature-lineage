@@ -77,6 +77,13 @@ def test_generate_button_no_profile_shows_warning(
 
     assert not at.exception
     assert any("no profiles.yml" in warning.value.lower() for warning in at.warning)
+    # Regression guard: the fixed headline and ArtifactStatus.message used to
+    # both restate "no profiles.yml found", producing a visibly repeated
+    # sentence. The message should now only appear once.
+    warning_text = next(
+        warning.value for warning in at.warning if "no profiles.yml" in warning.value.lower()
+    )
+    assert warning_text.lower().count("no profiles.yml") == 1
 
 
 def test_generate_button_success_shows_manifest_success_message(

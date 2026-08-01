@@ -84,6 +84,13 @@ def describe_artifact_status(status: ArtifactStatus) -> tuple[str, str]:
 
     level is one of "success", "info", "warning" -- matching
     st.success/st.info/st.warning (or a CLI color) respectively.
+
+    The rendered text is `_ARTIFACT_STATUS_MESSAGES[reason]`, with
+    `status.message` appended only when present. By contract (see
+    artifact_detector), `status.message` must be supplementary detail the
+    fixed headline doesn't already cover (e.g. dbt's stderr, the offending
+    schema version) -- never a restatement of the headline itself, or the
+    two end up saying the same thing twice.
     """
 
     if status.mode == "manifest":
