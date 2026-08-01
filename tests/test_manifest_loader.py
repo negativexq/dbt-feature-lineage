@@ -222,7 +222,7 @@ def test_raw_sql_prefers_compiled_code_when_present(
     project = load_dbt_project_from_manifest(project_dir)
 
     stg_customers = _model(project, "stg_customers")
-    assert "banking_dev.raw_banking.customers" in stg_customers.raw_sql
+    assert "raw_banking.customers" in stg_customers.raw_sql
     assert "source(" not in stg_customers.raw_sql
 
 

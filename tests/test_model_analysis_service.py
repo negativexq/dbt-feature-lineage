@@ -61,7 +61,7 @@ def test_inspect_model_prefers_manifest_compiled_code(
 
     analysis = inspect_model(tmp_path, "stg_customers")
 
-    assert "banking_dev.raw_banking.customers" in analysis.raw_sql
+    assert "raw_banking.customers" in analysis.raw_sql
     assert "source(" not in analysis.raw_sql
 
 

@@ -24,7 +24,7 @@
         "materialized": "view"
       },
       "raw_code": "with source_customers as (\n    select customer_id, first_name, last_name, customer_status\n    from {{ source('core_banking', 'customers') }}\n)\n\nselect * from source_customers\n",
-      "compiled_code": "with source_customers as (\n    select customer_id, first_name, last_name, customer_status\n    from banking_dev.raw_banking.customers\n)\n\nselect * from source_customers\n",
+      "compiled_code": "with source_customers as (\n    select customer_id, first_name, last_name, customer_status\n    from raw_banking.customers\n)\n\nselect * from source_customers\n",
       "compiled": true,
       "depends_on": {
         "macros": [],
