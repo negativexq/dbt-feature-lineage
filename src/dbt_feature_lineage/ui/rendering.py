@@ -4,7 +4,27 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from dbt_feature_lineage.domain.models import DbtModel, DbtModelAnalysis, DbtOutputColumn
+from dbt_feature_lineage.domain.models import (
+    ArtifactStatus,
+    DbtModel,
+    DbtModelAnalysis,
+    DbtOutputColumn,
+)
+
+_ARTIFACT_STATUS_MESSAGES: dict[str, str] = {
+    "found": "Using compiled artifacts from target/manifest.json.",
+    "generated": "Generated target/manifest.json via `dbt parse` and now using it.",
+    "not_generated": "target/manifest.json not found — using the static SQL parser.",
+    "dbt_cli_unavailable": "`dbt` CLI not found on PATH — using the static SQL parser.",
+    "no_profile": "No profiles.yml found for this project — using the static SQL parser.",
+    "dbt_parse_failed": "`dbt parse` failed — using the static SQL parser.",
+    "unsupported_manifest_schema_version": (
+        "manifest.json schema version is not supported — using the static SQL parser."
+    ),
+    "manifest_parse_failed": (
+        "target/manifest.json could not be parsed — using the static SQL parser."
+    ),
+}
 
 
 def group_models_by_layer(models: list[DbtModel]) -> dict[str, list[DbtModel]]:
@@ -57,6 +77,35 @@ def filter_output_columns(
         ]
 
     return filtered
+
+
+def describe_artifact_status(status: ArtifactStatus) -> tuple[str, str]:
+    """Build a (level, message) pair for surfacing an ArtifactStatus in the UI.
+
+    level is one of "success", "info", "warning" -- matching
+    st.success/st.info/st.warning (or a CLI color) respectively.
+
+    The rendered text is `_ARTIFACT_STATUS_MESSAGES[reason]`, with
+    `status.message` appended only when present. By contract (see
+    artifact_detector), `status.message` must be supplementary detail the
+    fixed headline doesn't already cover (e.g. dbt's stderr, the offending
+    schema version) -- never a restatement of the headline itself, or the
+    two end up saying the same thing twice.
+    """
+
+    if status.mode == "manifest":
+        level = "success"
+    elif status.reason == "not_generated":
+        level = "info"
+    else:
+        level = "warning"
+
+    message = _ARTIFACT_STATUS_MESSAGES.get(
+        status.reason, f"{status.mode} mode ({status.reason})."
+    )
+    if status.message:
+        message = f"{message} {status.message}"
+    return level, message
 
 
 def summarize_model_analysis(analysis: DbtModelAnalysis) -> dict[str, int]:

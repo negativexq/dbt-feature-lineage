@@ -1,0 +1,11 @@
+sample_banking_dbt:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: localhost
+      user: dummy
+      password: dummy
+      port: 5432
+      dbname: dummy
+      schema: dummy

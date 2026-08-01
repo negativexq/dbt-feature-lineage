@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
 import typer
 from rich.console import Console
 from rich.panel import Panel
+from rich.prompt import Confirm
 from rich.table import Table
 
-from dbt_feature_lineage.domain.models import DbtModelAnalysis, DbtProject
-from dbt_feature_lineage.loaders.project_loader import load_dbt_project
+from dbt_feature_lineage.domain.models import ArtifactStatus, DbtModelAnalysis, DbtProject
+from dbt_feature_lineage.loaders.artifact_detector import resolve_dbt_project
 from dbt_feature_lineage.services.model_analysis_service import inspect_model
 
 app = typer.Typer(no_args_is_help=True)
@@ -32,19 +34,65 @@ def _build_output_payload(
     if models_only and sources_only:
         raise typer.BadParameter("Use only one of --models-only or --sources-only.")
 
+    artifact_status = (
+        project.artifact_status.model_dump(mode="json") if project.artifact_status else None
+    )
+
     if models_only:
         return {
             "project": project.name,
+            "artifact_status": artifact_status,
             "models": [model.model_dump(mode="json") for model in project.models],
         }
     if sources_only:
         return {
             "project": project.name,
+            "artifact_status": artifact_status,
             "sources": [
                 source.model_dump(mode="json", by_alias=True) for source in project.sources
             ],
         }
     return project.model_dump(mode="json", by_alias=True)
+
+
+def _is_interactive() -> bool:
+    """Whether stdin is an interactive terminal (isolated for testability)."""
+
+    return sys.stdin.isatty()
+
+
+def _resolve_generate_artifacts(project_path: Path, generate_artifacts: bool | None) -> bool:
+    """Decide whether `dbt parse` should be attempted.
+
+    An explicit --generate-artifacts/--no-generate-artifacts flag always wins.
+    Otherwise: if a manifest already exists there's nothing to decide, and in
+    non-interactive contexts (CI, pipes) we never prompt -- we just fall back
+    to the static parser silently-from-the-user's-perspective-but-not-really,
+    since resolve_dbt_project still reports the fallback via ArtifactStatus.
+    """
+
+    if generate_artifacts is not None:
+        return generate_artifacts
+
+    manifest_file = project_path / "target" / "manifest.json"
+    if manifest_file.exists() or not _is_interactive():
+        return False
+
+    return Confirm.ask(
+        "target/manifest.json not found. Generate dbt artifacts via `dbt parse`?",
+        default=False,
+    )
+
+
+def _render_artifact_status(status: ArtifactStatus | None) -> None:
+    if status is None:
+        return
+
+    style = "green" if status.mode == "manifest" else "yellow"
+    console.print(f"[{style}]artifact source: {status.mode} (reason: {status.reason})[/{style}]")
+    if status.message:
+        console.print(f"[{style}]{status.message}[/{style}]")
+    console.print()
 
 
 def _render_summary(project: DbtProject, models_only: bool, sources_only: bool) -> None:
@@ -125,17 +173,27 @@ def analyze(
     json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON."),
     models_only: bool = typer.Option(False, "--models-only", help="Show models only."),
     sources_only: bool = typer.Option(False, "--sources-only", help="Show sources only."),
+    generate_artifacts: bool | None = typer.Option(
+        None,
+        "--generate-artifacts/--no-generate-artifacts",
+        help=(
+            "Run `dbt parse` to generate target/manifest.json when it's missing. "
+            "If left unset and the terminal is interactive, you'll be asked."
+        ),
+    ),
 ) -> None:
     """Analyze a local dbt project."""
 
     resolved_path = Path(project_path).expanduser().resolve()
-    project = load_dbt_project(resolved_path)
+    should_generate = _resolve_generate_artifacts(resolved_path, generate_artifacts)
+    project = resolve_dbt_project(resolved_path, generate_artifacts=should_generate)
 
     if json_output:
         payload = _build_output_payload(project, models_only=models_only, sources_only=sources_only)
         typer.echo(json.dumps(payload, indent=2))
         return
 
+    _render_artifact_status(project.artifact_status)
     _render_summary(project, models_only=models_only, sources_only=sources_only)
 
 

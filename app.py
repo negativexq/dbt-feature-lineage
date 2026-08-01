@@ -7,10 +7,12 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from dbt_feature_lineage.loaders.project_loader import load_dbt_project
+from dbt_feature_lineage.domain.models import DbtProject
+from dbt_feature_lineage.loaders.artifact_detector import resolve_dbt_project
 from dbt_feature_lineage.services.model_analysis_service import inspect_model
 from dbt_feature_lineage.ui import (
     build_model_flow_lines,
+    describe_artifact_status,
     filter_models,
     filter_output_columns,
     group_models_by_layer,
@@ -21,9 +23,27 @@ DEFAULT_PROJECT_PATH = "examples/sample_banking_dbt"
 LAYER_ORDER = ["staging", "intermediate", "marts", "unknown"]
 
 
+def _manifest_cache_key(resolved_path: Path) -> float:
+    """Cache-busting key: the manifest's mtime, or 0.0 when it doesn't exist.
+
+    Without this, st.cache_data would keep serving a stale "no manifest"
+    result even after `dbt parse` (triggered by us or run manually by the
+    user) writes target/manifest.json.
+    """
+
+    manifest_file = resolved_path / "target" / "manifest.json"
+    return manifest_file.stat().st_mtime if manifest_file.exists() else 0.0
+
+
 @st.cache_data(show_spinner=False)
-def cached_load_project(project_path: str):
-    return load_dbt_project(project_path)
+def cached_load_project(project_path: str, manifest_cache_key: float) -> DbtProject:
+    return resolve_dbt_project(project_path, generate_artifacts=False)
+
+
+def generate_artifacts_and_reload(project_path: str) -> DbtProject:
+    """Run `dbt parse` (uncached, so a retry after a fix is never stale)."""
+
+    return resolve_dbt_project(project_path, generate_artifacts=True)
 
 
 @st.cache_data(show_spinner=False)
@@ -44,10 +64,29 @@ def main() -> None:
         return
 
     try:
-        project = cached_load_project(str(resolved_path))
+        project = cached_load_project(str(resolved_path), _manifest_cache_key(resolved_path))
     except (FileNotFoundError, NotADirectoryError, ValueError) as exc:
         st.error(str(exc))
         return
+
+    if project.artifact_status is not None and project.artifact_status.mode == "static":
+        if st.button("Generate artifacts (dbt parse)"):
+            with st.spinner("Running `dbt parse`..."):
+                project = generate_artifacts_and_reload(str(resolved_path))
+            cached_load_project.clear()
+            if project.artifact_status is not None and project.artifact_status.mode == "manifest":
+                # Rerun so the button (drawn above, before we knew the
+                # outcome) disappears now that a manifest is in use.
+                st.rerun()
+
+    if project.artifact_status is not None:
+        level, message = describe_artifact_status(project.artifact_status)
+        if level == "success":
+            st.success(message)
+        elif level == "warning":
+            st.warning(message)
+        else:
+            st.info(message)
 
     st.success(f"Loaded project: {project.name}")
 

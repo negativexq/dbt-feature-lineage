@@ -2,6 +2,7 @@
 
 from .rendering import (
     build_model_flow_lines,
+    describe_artifact_status,
     filter_models,
     filter_output_columns,
     group_models_by_layer,
@@ -10,6 +11,7 @@ from .rendering import (
 
 __all__ = [
     "build_model_flow_lines",
+    "describe_artifact_status",
     "filter_models",
     "filter_output_columns",
     "group_models_by_layer",
