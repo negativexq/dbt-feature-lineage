@@ -18,6 +18,7 @@ import pytest
 from dbt_feature_lineage.domain.models import DbtModel, DbtProject, DbtSource, DbtSourceTable
 from dbt_feature_lineage.loaders.manifest_loader import load_dbt_project_from_manifest
 from dbt_feature_lineage.loaders.project_loader import load_dbt_project
+from dbt_feature_lineage.parsers.sql_parser import preprocess_dbt_sql
 from dbt_feature_lineage.services.schema_builder import build_project_schema
 
 FIXTURE_MANIFEST_PATH = Path(__file__).resolve().parent / "fixtures" / "manifest.json"
@@ -153,10 +154,15 @@ def test_static_mode_source_placeholder_matches_sql_parser_convention(
 def test_static_mode_sources_dict_is_keyed_by_bare_model_name_only(
     static_project: DbtProject,
 ) -> None:
+    # `sources` values must be Jinja-preprocessed (sqlglot can't parse raw
+    # `{{ ref()/source() }}` text), so this must match preprocess_dbt_sql()'s
+    # output, not the raw model.raw_sql.
     project_schema = build_project_schema(static_project)
     raw_sql = _raw_sql_for(static_project, "stg_customers")
+    preprocessed_sql, _ = preprocess_dbt_sql(raw_sql)
 
-    assert project_schema.sources["stg_customers"] == raw_sql
+    assert project_schema.sources["stg_customers"] == preprocessed_sql
+    assert "{{" not in project_schema.sources["stg_customers"]
     # No schema-qualified duplicate keys -- static mode has no schema/alias info.
     assert "analytics_staging.stg_customers" not in project_schema.sources
 

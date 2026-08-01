@@ -1,5 +1,9 @@
+import networkx as nx
+
+from dbt_feature_lineage.domain.lineage import ColumnNode
 from dbt_feature_lineage.domain.models import DbtModel, DbtModelAnalysis, DbtOutputColumn
 from dbt_feature_lineage.ui import (
+    build_lineage_dot,
     build_model_flow_lines,
     filter_models,
     filter_output_columns,
@@ -120,3 +124,31 @@ def test_summarize_model_analysis() -> None:
     assert summary["cte_count"] == 2
     assert summary["join_count"] == 2
     assert summary["output_column_count"] == 1
+
+
+def test_build_lineage_dot_includes_every_node_and_edge() -> None:
+    source = ColumnNode(model="stg_customers", column="customer_id", layer="staging")
+    target = ColumnNode(model="mart_customer_overview", column="customer_id", layer="marts")
+    graph: nx.DiGraph = nx.DiGraph()
+    graph.add_edge(source, target, transformation_type="direct", expression_sql="a.customer_id")
+
+    dot = build_lineage_dot(graph)
+
+    assert dot.startswith("digraph lineage {")
+    assert dot.endswith("}")
+    assert '"stg_customers.customer_id"' in dot
+    assert '"mart_customer_overview.customer_id"' in dot
+    assert '"stg_customers.customer_id" -> "mart_customer_overview.customer_id"' in dot
+    assert 'label="direct"' in dot
+
+
+def test_build_lineage_dot_escapes_double_quotes_in_identifiers() -> None:
+    node = ColumnNode(model='weird"model', column="col", layer="unknown")
+    graph: nx.DiGraph = nx.DiGraph()
+    graph.add_node(node)
+
+    dot = build_lineage_dot(graph)
+
+    assert '\\"' in dot
+    # The raw, unescaped quote should never appear on its own inside a label.
+    assert 'weird"model' not in dot

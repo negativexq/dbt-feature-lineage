@@ -15,6 +15,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml README.md app.py /app/
+COPY pages /app/pages
 COPY src /app/src
 
 RUN pip install --upgrade pip \

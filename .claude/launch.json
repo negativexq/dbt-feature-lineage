@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "streamlit",
+      "runtimeExecutable": "docker",
+      "runtimeArgs": ["compose", "up", "app"],
+      "port": 8501
+    }
+  ]
+}

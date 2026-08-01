@@ -7,14 +7,18 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import networkx as nx
 import typer
 from rich.console import Console
 from rich.panel import Panel
-from rich.prompt import Confirm
+from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
+from dbt_feature_lineage.domain.lineage import ColumnNode
 from dbt_feature_lineage.domain.models import ArtifactStatus, DbtModelAnalysis, DbtProject
 from dbt_feature_lineage.loaders.artifact_detector import resolve_dbt_project
+from dbt_feature_lineage.services.column_search import build_search_index, get_upstream_chain
+from dbt_feature_lineage.services.lineage_service import build_project_lineage
 from dbt_feature_lineage.services.model_analysis_service import inspect_model
 
 app = typer.Typer(no_args_is_help=True)
@@ -167,6 +171,114 @@ def _render_model_inspection(analysis: DbtModelAnalysis) -> None:
     console.print(Panel(analysis.raw_sql, title="Raw SQL"))
 
 
+def _resolve_ambiguous_match(
+    matches: list[ColumnNode], model_name: str | None, column_name: str
+) -> ColumnNode:
+    """Narrow a column-name search down to a single ColumnNode, or exit.
+
+    An explicit --model always wins. Otherwise: a single match needs no
+    disambiguation; multiple matches are resolved interactively only when
+    the terminal is interactive (matching _resolve_generate_artifacts'
+    non-interactive-never-prompts rule) -- non-interactive callers (CI,
+    scripts) get the candidate list on stdout and a non-zero exit instead
+    of hanging on a prompt.
+    """
+
+    if model_name is not None:
+        matches = [match for match in matches if match.model == model_name]
+
+    if not matches:
+        target_description = f"'{column_name}'" + (
+            f" in model '{model_name}'" if model_name else ""
+        )
+        console.print(f"[red]No matches for column {target_description}.[/red]")
+        raise typer.Exit(code=1)
+
+    if len(matches) == 1:
+        return matches[0]
+
+    if _is_interactive():
+        selected_model = Prompt.ask(
+            f"Multiple models produce a column named '{column_name}'. Which model?",
+            choices=[match.model for match in matches],
+        )
+        return next(match for match in matches if match.model == selected_model)
+
+    console.print(
+        f"[yellow]Column '{column_name}' is ambiguous across {len(matches)} models:[/yellow]"
+    )
+    for match in matches:
+        console.print(f"  - {match.model} ({match.layer})")
+    console.print("Pass --model to disambiguate.")
+    raise typer.Exit(code=1)
+
+
+def _render_lineage_warnings(warnings: list[str]) -> None:
+    if not warnings:
+        return
+
+    console.print(
+        Panel(
+            "\n".join(warnings),
+            title=f"{len(warnings)} model(s) excluded from lineage",
+        )
+    )
+
+
+def _render_lineage_chain(
+    target: ColumnNode, chain: list[ColumnNode], subgraph: nx.DiGraph
+) -> None:
+    console.print(f"Column: {target.column}")
+    console.print(f"Model: {target.model} (layer: {target.layer})")
+    console.print()
+
+    if len(chain) == 1:
+        console.print(
+            "[yellow]No upstream lineage found "
+            "(this is a raw source or has no traceable inputs).[/yellow]"
+        )
+        return
+
+    # Edge list, not a single "a -> b -> c" arrow chain: a column fed by
+    # more than one upstream input (e.g. coalesce()/joins) has a genuinely
+    # branching ancestor DAG, not one linear path (docs/v0.4-plan.md Bölüm 3).
+    # Printed as plain lines rather than a Table: model.column identifiers
+    # (schema-qualified in manifest mode) are long enough that a
+    # column-width-constrained Table truncates them with "…" on anything
+    # but a wide terminal.
+    console.print("Upstream lineage:")
+    for source, edge_target, data in subgraph.edges(data=True):
+        console.print(
+            f"  {source.model}.{source.column} -> {edge_target.model}.{edge_target.column} "
+            f"[{data['transformation_type']}]"
+        )
+        console.print(f"    {data['expression_sql']}")
+
+
+def _build_lineage_payload(
+    target: ColumnNode,
+    chain: list[ColumnNode],
+    subgraph: nx.DiGraph,
+    lineage_warnings: list[str],
+) -> dict[str, Any]:
+    return {
+        "column": target.column,
+        "model": target.model,
+        "layer": target.layer,
+        "chain": [node.model_dump(mode="json") for node in chain],
+        "edges": [
+            {
+                "source": source.model_dump(mode="json"),
+                "target": edge_target.model_dump(mode="json"),
+                "transformation_type": data["transformation_type"],
+                "expression_sql": data["expression_sql"],
+            }
+            for source, edge_target, data in subgraph.edges(data=True)
+        ],
+        "lineage_warnings": lineage_warnings,
+    }
+
+
 @app.command()
 def analyze(
     project_path: str = typer.Argument(..., help="Path to a local dbt project."),
@@ -213,6 +325,36 @@ def inspect(
         return
 
     _render_model_inspection(analysis)
+
+
+@app.command()
+def lineage(
+    project_path: str = typer.Argument(..., help="Path to a local dbt project."),
+    column_name: str = typer.Argument(..., help="Column name to trace upstream."),
+    model_name: str | None = typer.Option(
+        None, "--model", help="Disambiguate when multiple models produce this column."
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON."),
+) -> None:
+    """Trace a column's lineage back to its raw source(s)."""
+
+    resolved_path = Path(project_path).expanduser().resolve()
+    project = resolve_dbt_project(resolved_path, generate_artifacts=False)
+    graph = build_project_lineage(project)
+    lineage_warnings: list[str] = graph.graph.get("lineage_warnings", [])
+
+    matches = build_search_index(graph).get(column_name, [])
+    target = _resolve_ambiguous_match(matches, model_name, column_name)
+    chain = get_upstream_chain(graph, target)
+    subgraph = graph.subgraph(chain)
+
+    if json_output:
+        payload = _build_lineage_payload(target, chain, subgraph, lineage_warnings)
+        typer.echo(json.dumps(payload, indent=2))
+        return
+
+    _render_lineage_warnings(lineage_warnings)
+    _render_lineage_chain(target, chain, subgraph)
 
 
 def main() -> None:
