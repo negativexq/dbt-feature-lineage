@@ -16,6 +16,9 @@ Large dbt projects can contain many models, CTEs, joins, transformations, and fe
 - `ref()` and `source()` dependency extraction
 - Human-readable project summaries and JSON CLI output
 - Individual model inspection with graceful parser fallback
+- Manifest-aware project loading via `target/manifest.json` and `catalog.json`, preferred over static SQL parsing whenever available
+- `--generate-artifacts` CLI flag (and a matching "Generate artifacts" button in the Streamlit UI) to run `dbt parse` on demand, with a reported, non-silent fallback to static analysis if it can't
+- Model inspection uses dbt's actual compiled SQL when a manifest is present, instead of re-parsing the raw Jinja source
 - Jinja preprocessing for `ref()` and `source()` calls
 - CTE, table alias, join, filter, aggregate, and window-function analysis
 - Output-column extraction and transformation-type classification
@@ -27,6 +30,8 @@ Full cross-model column-level lineage is not implemented yet.
 ## Demo project
 
 The repository includes [`examples/sample_banking_dbt`](examples/sample_banking_dbt), a realistic banking analytics and Feature Store pipeline with staging, intermediate, marts, and feature store export layers. Its main complex model is `mart_customer_features`.
+
+The project ships with a `profiles.yml` using entirely placeholder postgres credentials, so `dbt parse` can run end-to-end without a live warehouse connection — this lets you exercise manifest mode (see `--generate-artifacts` below) against the demo project directly.
 
 ```text
 Raw banking sources
@@ -110,8 +115,11 @@ Inside the development container:
 ```bash
 dbt-feature-lineage analyze examples/sample_banking_dbt
 dbt-feature-lineage analyze examples/sample_banking_dbt --json
+dbt-feature-lineage analyze examples/sample_banking_dbt --generate-artifacts
 dbt-feature-lineage inspect examples/sample_banking_dbt mart_customer_features
 ```
+
+`--generate-artifacts` runs `dbt parse` to produce `target/manifest.json` if it doesn't exist yet, then loads from it; if `dbt` isn't installed, no profile is found, or parsing fails, it falls back to static analysis and reports why instead of failing silently. Without the flag, `analyze` prompts interactively only when a manifest is missing and the terminal is interactive; non-interactive runs (CI, pipes) skip straight to static analysis.
 
 Equivalent one-shot Docker commands are:
 
@@ -147,13 +155,13 @@ The MVP does not execute arbitrary dbt macros.
 - There is no dbt Cloud, Airflow, or warehouse integration.
 - The UI does not clone Git repositories.
 - Complex custom macros may not parse correctly.
-- Static analysis can differ from fully compiled dbt SQL.
+- Static analysis can differ from fully compiled dbt SQL; this only applies when no `target/manifest.json` is available, since manifest mode uses dbt's own compiled SQL.
 - The demo project requires no live warehouse connection, but analyzing projects that depend on generated or unavailable files may be incomplete.
 
 ## Roadmap
 
-- [ ] Manifest-first analysis
-- [ ] Compiled SQL support
+- [x] Manifest-first analysis
+- [x] Compiled SQL support
 - [ ] Cross-model column lineage
 - [ ] Feature Store raw-source tracing
 - [ ] Impact analysis
