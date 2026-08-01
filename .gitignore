@@ -8,9 +8,11 @@ htmlcov/
 dist/
 build/
 target/
+.user.yml
 logs/
 *.log
 *.local
 .env
 profiles.yml
+!examples/sample_banking_dbt/profiles.yml
 .DS_Store
