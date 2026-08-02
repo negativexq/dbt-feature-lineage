@@ -23,11 +23,19 @@ from dbt_feature_lineage.loaders.manifest_loader import (
 )
 
 FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "manifest.json"
+METADATA_FIXTURE_PATH = (
+    Path(__file__).resolve().parent / "fixtures" / "manifest_model_metadata.json"
+)
 
 
 @pytest.fixture
 def manifest_data() -> dict[str, Any]:
     return json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
+
+
+@pytest.fixture
+def metadata_manifest_data() -> dict[str, Any]:
+    return json.loads(METADATA_FIXTURE_PATH.read_text(encoding="utf-8"))
 
 
 def _write_manifest(
@@ -292,3 +300,84 @@ def test_source_table_columns_are_populated(tmp_path: Path, manifest_data: dict[
     source = project.sources[0]
     customers_table = next(table for table in source.tables if table.name == "customers")
     assert set(customers_table.columns) == {"customer_id", "first_name"}
+
+
+# ---------------------------------------------------------------------------
+# Model metadata: description/tags/owner/test_count (v0.5)
+# ---------------------------------------------------------------------------
+
+
+def test_description_and_tags_are_read_from_the_model_node(
+    tmp_path: Path, metadata_manifest_data: dict[str, Any]
+) -> None:
+    project_dir = _write_manifest(tmp_path, metadata_manifest_data)
+    project = load_dbt_project_from_manifest(project_dir)
+
+    model = _model(project, "mart_with_metadata")
+    assert model.description == "Customer-level feature mart used by the finance team."
+    assert model.tags == ["finance", "daily"]
+
+
+def test_owner_is_read_from_meta_owner(
+    tmp_path: Path, metadata_manifest_data: dict[str, Any]
+) -> None:
+    project_dir = _write_manifest(tmp_path, metadata_manifest_data)
+    project = load_dbt_project_from_manifest(project_dir)
+
+    model = _model(project, "mart_with_metadata")
+    assert model.owner == "finance-team"
+
+
+def test_test_count_is_derived_from_separate_test_nodes(
+    tmp_path: Path, metadata_manifest_data: dict[str, Any]
+) -> None:
+    # The manifest has no "tests" list directly on the model node -- two
+    # separate resource_type="test" nodes each depend_on it via
+    # depends_on.nodes, and test_count must be reverse-mapped from those.
+    project_dir = _write_manifest(tmp_path, metadata_manifest_data)
+    project = load_dbt_project_from_manifest(project_dir)
+
+    model = _model(project, "mart_with_metadata")
+    assert model.test_count == 2
+
+
+def test_model_with_no_tests_has_zero_test_count(
+    tmp_path: Path, metadata_manifest_data: dict[str, Any]
+) -> None:
+    project_dir = _write_manifest(tmp_path, metadata_manifest_data)
+    project = load_dbt_project_from_manifest(project_dir)
+
+    model = _model(project, "mart_without_metadata")
+    assert model.test_count == 0
+
+
+def test_empty_description_meta_and_tags_default_to_none_or_empty(
+    tmp_path: Path, metadata_manifest_data: dict[str, Any]
+) -> None:
+    # mart_without_metadata has description="" and meta={} in the fixture
+    # (a dbt project that never documented this model) -- an empty string
+    # should normalize to None, not be kept as a falsy-but-present string.
+    project_dir = _write_manifest(tmp_path, metadata_manifest_data)
+    project = load_dbt_project_from_manifest(project_dir)
+
+    model = _model(project, "mart_without_metadata")
+    assert model.description is None
+    assert model.tags == []
+    assert model.owner is None
+
+
+def test_metadata_fields_default_to_none_or_empty_when_entirely_absent(
+    tmp_path: Path, manifest_data: dict[str, Any]
+) -> None:
+    # The main manifest.json fixture's model nodes have description=None,
+    # tags=[], meta=None (never set at all, vs. metadata_manifest_data's
+    # "set but empty" case above) and no test nodes -- a real-world
+    # manifest from a project that doesn't use any of this dbt metadata.
+    project_dir = _write_manifest(tmp_path, manifest_data)
+    project = load_dbt_project_from_manifest(project_dir)
+
+    stg_customers = _model(project, "stg_customers")
+    assert stg_customers.description is None
+    assert stg_customers.tags == []
+    assert stg_customers.owner is None
+    assert stg_customers.test_count == 0

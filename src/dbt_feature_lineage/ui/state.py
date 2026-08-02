@@ -20,6 +20,7 @@ from dbt_feature_lineage.domain.models import DbtProject
 from dbt_feature_lineage.loaders.artifact_detector import resolve_dbt_project
 from dbt_feature_lineage.services.lineage_service import build_project_lineage
 from dbt_feature_lineage.services.model_analysis_service import inspect_model
+from dbt_feature_lineage.services.model_dag_service import build_model_dag
 
 DEFAULT_PROJECT_PATH = "examples/sample_banking_dbt"
 
@@ -71,3 +72,20 @@ def cached_build_project_lineage(
 
     project = cached_load_project(project_path, manifest_cache_key)
     return build_project_lineage(project)
+
+
+@st.cache_data(show_spinner=False)
+def cached_build_model_dag(
+    project_path: str, manifest_cache_key: float, model_dag_key: tuple
+) -> nx.DiGraph:
+    """Same cache-busting pattern as cached_build_project_lineage: `model_dag_key`
+    (from services.model_dag_service.model_dag_cache_key()) is computed
+    cheaply by the caller and passed in as a plain hashable argument.
+
+    Only called from pages/model_dag.py -- st.navigation() pages are lazy
+    (only the active page's script executes), same reasoning as
+    cached_build_project_lineage.
+    """
+
+    project = cached_load_project(project_path, manifest_cache_key)
+    return build_model_dag(project)

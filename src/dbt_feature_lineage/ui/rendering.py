@@ -4,13 +4,12 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-import networkx as nx
-
 from dbt_feature_lineage.domain.models import (
     ArtifactStatus,
     DbtModel,
     DbtModelAnalysis,
     DbtOutputColumn,
+    DbtProject,
 )
 
 _ARTIFACT_STATUS_MESSAGES: dict[str, str] = {
@@ -110,44 +109,42 @@ def describe_artifact_status(status: ArtifactStatus) -> tuple[str, str]:
     return level, message
 
 
-def build_lineage_dot(subgraph: nx.DiGraph) -> str:
-    """Render a column-lineage subgraph as a DOT string for st.graphviz_chart.
+def render_node_detail_panel(project: DbtProject, model_name: str) -> dict[str, str]:
+    """Build the Model DAG right-hand detail panel's content for one model.
 
-    st.graphviz_chart accepts a raw DOT string directly, so this avoids
-    adding the `graphviz` package (not an existing dependency) or a
-    pydot/pygraphviz-based networkx export just to draw a handful of
-    nodes -- confirmed in docs/v0.4-plan.md Bölüm 5.
+    A plain function returning label -> value, not a Streamlit render call,
+    so it can be unit tested independently of streamlit_flow -- AppTest
+    can't simulate a node click (no real JS runtime executes, so a custom
+    component's return value never changes -- see docs/v0.5-plan.md
+    Bölüm 8, verified via a sandbox spike), so this is the only way the
+    "click a node -> panel updates" logic gets tested at all. The caller
+    (pages/model_dag.py) is responsible for turning this dict into
+    `st.write`/`st.markdown` calls.
 
-    Node/edge styling (font size, padding, spacing) is set generously on
-    purpose: graphviz's default layout is dense enough to look cramped
-    even at moderate node counts, and the caller is expected to render
-    this with st.graphviz_chart(..., width="stretch") rather than
-    graphviz's own `size` attribute (which would scale the whole graph
-    *down* to fit a fixed box -- the opposite of what's wanted here).
+    Fields with nothing to show (owner/description/tags unset, static
+    mode, or a dbt project that simply never documented this model) are
+    left out of the returned dict entirely -- not a scope/coverage
+    problem worth a schema_warnings-style warning, just this model having
+    less metadata than another one.
     """
 
-    lines = [
-        "digraph lineage {",
-        "    rankdir=LR;",
-        "    graph [nodesep=0.5, ranksep=0.75];",
-        '    node [shape=box, style="rounded,filled", fillcolor="#eef2f7", '
-        'fontsize=14, fontname="Helvetica", margin="0.2,0.15"];',
-        '    edge [fontsize=11, fontname="Helvetica"];',
-    ]
-    for node in subgraph.nodes:
-        node_id = _dot_escape(f"{node.model}.{node.column}")
-        lines.append(f'    "{node_id}" [label="{node_id}"];')
-    for source, target, data in subgraph.edges(data=True):
-        source_id = _dot_escape(f"{source.model}.{source.column}")
-        target_id = _dot_escape(f"{target.model}.{target.column}")
-        edge_label = _dot_escape(str(data.get("transformation_type", "")))
-        lines.append(f'    "{source_id}" -> "{target_id}" [label="{edge_label}"];')
-    lines.append("}")
-    return "\n".join(lines)
+    model = next((m for m in project.models if m.name == model_name), None)
+    if model is None:
+        return {}
 
+    panel: dict[str, str] = {"Model": model.name, "Layer": model.layer}
+    if model.materialization:
+        panel["Materialization"] = model.materialization
+    if model.description:
+        panel["Description"] = model.description
+    if model.tags:
+        panel["Tags"] = ", ".join(model.tags)
+    if model.owner:
+        panel["Owner"] = model.owner
+    if model.test_count:
+        panel["Tests"] = str(model.test_count)
 
-def _dot_escape(value: str) -> str:
-    return value.replace("\\", "\\\\").replace('"', '\\"')
+    return panel
 
 
 def summarize_model_analysis(analysis: DbtModelAnalysis) -> dict[str, int]:

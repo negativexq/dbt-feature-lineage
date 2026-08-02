@@ -12,11 +12,19 @@ dependencies = [
   "dbt-core",
   "dbt-postgres",
   "pandas",
-  "pydantic",
+  # Unpinned, this project's own pydantic v2 code (ConfigDict, model_dump)
+  # is at the mercy of which dbt-core version pip's resolver happens to
+  # land on -- dbt-core<1.12 pins pydantic<2, and adding one more
+  # dependency (streamlit-flow-component) was enough to flip the
+  # resolver onto one of those older releases, silently downgrading
+  # pydantic and breaking every frozen/hashable model in the app
+  # (verified: this exact regression, during v0.5 development).
+  "pydantic>=2",
   "pyyaml",
   "sqlglot",
   "networkx",
   "streamlit",
+  "streamlit-flow-component",
   "typer",
   "rich",
 ]

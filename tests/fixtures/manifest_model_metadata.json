@@ -1,0 +1,108 @@
+{
+    "metadata": {
+        "dbt_schema_version": "https://schemas.getdbt.com/dbt/manifest/v12.json",
+        "dbt_version": "1.8.8",
+        "generated_at": "2026-08-02T10:00:00.000000Z",
+        "invocation_id": "22222222-2222-2222-2222-222222222222",
+        "project_name": "metadata_fixture_project",
+        "project_id": "metadata_fixture_project_id",
+        "adapter_type": "postgres"
+    },
+    "nodes": {
+        "model.metadata_fixture_project.mart_with_metadata": {
+            "resource_type": "model",
+            "unique_id": "model.metadata_fixture_project.mart_with_metadata",
+            "name": "mart_with_metadata",
+            "path": "marts/mart_with_metadata.sql",
+            "original_file_path": "models/marts/mart_with_metadata.sql",
+            "database": "banking_dev",
+            "schema": "analytics_marts",
+            "alias": "mart_with_metadata",
+            "fqn": [
+                "metadata_fixture_project",
+                "marts",
+                "mart_with_metadata"
+            ],
+            "tags": ["finance", "daily"],
+            "description": "Customer-level feature mart used by the finance team.",
+            "meta": {
+                "owner": "finance-team"
+            },
+            "config": {
+                "materialized": "table"
+            },
+            "raw_code": "select customer_id from stg_customers",
+            "compiled_code": "select customer_id from stg_customers",
+            "compiled": true,
+            "depends_on": {
+                "macros": [],
+                "nodes": []
+            }
+        },
+        "model.metadata_fixture_project.mart_without_metadata": {
+            "resource_type": "model",
+            "unique_id": "model.metadata_fixture_project.mart_without_metadata",
+            "name": "mart_without_metadata",
+            "path": "marts/mart_without_metadata.sql",
+            "original_file_path": "models/marts/mart_without_metadata.sql",
+            "database": "banking_dev",
+            "schema": "analytics_marts",
+            "alias": "mart_without_metadata",
+            "fqn": [
+                "metadata_fixture_project",
+                "marts",
+                "mart_without_metadata"
+            ],
+            "tags": [],
+            "description": "",
+            "meta": {},
+            "config": {
+                "materialized": "view"
+            },
+            "raw_code": "select account_id from stg_accounts",
+            "compiled_code": "select account_id from stg_accounts",
+            "compiled": true,
+            "depends_on": {
+                "macros": [],
+                "nodes": []
+            }
+        },
+        "test.metadata_fixture_project.not_null_mart_with_metadata_customer_id.aaaaaaaaaa": {
+            "resource_type": "test",
+            "unique_id": "test.metadata_fixture_project.not_null_mart_with_metadata_customer_id.aaaaaaaaaa",
+            "name": "not_null_mart_with_metadata_customer_id",
+            "path": "not_null_mart_with_metadata_customer_id.sql",
+            "original_file_path": "models/marts/mart_with_metadata.yml",
+            "tags": [],
+            "config": {
+                "materialized": "test"
+            },
+            "raw_code": "",
+            "compiled_code": "",
+            "compiled": false,
+            "depends_on": {
+                "macros": ["macro.dbt.test_not_null"],
+                "nodes": ["model.metadata_fixture_project.mart_with_metadata"]
+            }
+        },
+        "test.metadata_fixture_project.unique_mart_with_metadata_customer_id.bbbbbbbbbb": {
+            "resource_type": "test",
+            "unique_id": "test.metadata_fixture_project.unique_mart_with_metadata_customer_id.bbbbbbbbbb",
+            "name": "unique_mart_with_metadata_customer_id",
+            "path": "unique_mart_with_metadata_customer_id.sql",
+            "original_file_path": "models/marts/mart_with_metadata.yml",
+            "tags": [],
+            "config": {
+                "materialized": "test"
+            },
+            "raw_code": "",
+            "compiled_code": "",
+            "compiled": false,
+            "depends_on": {
+                "macros": ["macro.dbt.test_unique"],
+                "nodes": ["model.metadata_fixture_project.mart_with_metadata"]
+            }
+        }
+    },
+    "sources": {}
+}

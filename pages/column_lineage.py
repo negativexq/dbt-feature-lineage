@@ -9,6 +9,12 @@ expensive part, one sqlglot.lineage() call per model output column --
 only runs when a user actually opens this page. st.tabs() bodies all
 execute on every rerun regardless of which tab is visible; st.navigation()
 pages don't (verified: only the active page's script executes).
+
+Renders via streamlit-flow-component (React Flow) rather than v0.4's
+static build_lineage_dot()/st.graphviz_chart -- same component and
+layout/session_state/theming pattern pages/model_dag.py established
+(v0.5), for visual consistency between the two graph pages and the
+zoom/pan/minimap interactivity a static DOT string couldn't offer.
 """
 
 from __future__ import annotations
@@ -16,6 +22,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import streamlit as st
+from streamlit_flow import streamlit_flow
+from streamlit_flow.layouts import LayeredLayout
+from streamlit_flow.state import StreamlitFlowState
 
 from dbt_feature_lineage.services.column_search import (
     build_search_index,
@@ -23,7 +32,7 @@ from dbt_feature_lineage.services.column_search import (
     get_upstream_chain,
 )
 from dbt_feature_lineage.services.lineage_service import lineage_cache_key
-from dbt_feature_lineage.ui import build_lineage_dot
+from dbt_feature_lineage.ui.flow_rendering import build_column_lineage_flow_elements
 from dbt_feature_lineage.ui.state import (
     DEFAULT_PROJECT_PATH,
     cached_build_project_lineage,
@@ -48,10 +57,9 @@ except (FileNotFoundError, NotADirectoryError, ValueError) as exc:
     st.stop()
 
 with st.spinner("Building project-wide lineage graph..."):
+    lineage_key = lineage_cache_key(project)
     lineage_graph = cached_build_project_lineage(
-        str(resolved_path),
-        manifest_mtime(resolved_path),
-        lineage_cache_key(project),
+        str(resolved_path), manifest_mtime(resolved_path), lineage_key
     )
 
 lineage_warnings = lineage_graph.graph.get("lineage_warnings", [])
@@ -98,10 +106,31 @@ elif matches:
         )
         st.info(message)
     else:
-        large_view = len(chain) > 12 and st.checkbox("Show larger view", key="lineage_large_view")
         chain_subgraph = lineage_graph.subgraph(chain)
-        st.graphviz_chart(
-            build_lineage_dot(chain_subgraph),
-            width="stretch",
+
+        # Same session_state pattern as pages/model_dag.py: the
+        # component's own pan/zoom state must survive reruns, but has to
+        # be rebuilt whenever the selected column/direction/project
+        # changes, or a previous selection's stale nodes/edges would
+        # linger in the canvas.
+        flow_key = (lineage_key, target.model, target.column, target.layer, is_upstream)
+        if (
+            "column_lineage_state" not in st.session_state
+            or st.session_state.get("column_lineage_state_key") != flow_key
+        ):
+            theme_base = st.get_option("theme.base") or "light"
+            nodes, edges = build_column_lineage_flow_elements(chain_subgraph, theme_base)
+            st.session_state.column_lineage_state = StreamlitFlowState(nodes, edges)
+            st.session_state.column_lineage_state_key = flow_key
+
+        large_view = len(chain) > 12 and st.checkbox("Show larger view", key="lineage_large_view")
+        new_state = streamlit_flow(
+            "column_lineage",
+            st.session_state.column_lineage_state,
+            layout=LayeredLayout(direction="right"),
+            fit_view=True,
+            show_controls=True,
+            show_minimap=True,
             height=800 if large_view else 450,
         )
+        st.session_state.column_lineage_state = new_state

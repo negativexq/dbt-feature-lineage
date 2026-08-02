@@ -24,11 +24,11 @@ from dbt_feature_lineage.domain.models import DbtDependency, DbtModel, DbtProjec
 from dbt_feature_lineage.loaders.manifest_loader import load_dbt_project_from_manifest
 from dbt_feature_lineage.loaders.project_loader import load_dbt_project
 from dbt_feature_lineage.services.lineage_service import (
-    CircularDependencyError,
     _break_cycles,
     build_project_lineage,
     get_column_lineage,
     lineage_cache_key,
+    resolve_circular_ref_dependencies,
     resolve_dialect,
 )
 from dbt_feature_lineage.services.schema_builder import build_project_schema
@@ -244,12 +244,16 @@ def test_build_project_lineage_intermediate_hops_are_present(chain_project: DbtP
 
 
 # ---------------------------------------------------------------------------
-# Circular ref() guard (Risk 5) -- validated via ref_dependencies, not by
-# provoking sqlglot's own expansion internals.
+# resolve_circular_ref_dependencies() (Risk 5) -- warn-and-exclude, not
+# raise: a real dbt project's ref() graph can't be cyclic (dbt itself
+# refuses to compile one), so this is realistically only reachable in
+# static mode (dependency_parser.py's regex extraction never goes through
+# dbt's compile-time validation). Reused by model_dag_service.py too
+# (test_model_dag_service.py), not just build_project_lineage().
 # ---------------------------------------------------------------------------
 
 
-def _circular_project() -> DbtProject:
+def _circular_project(extra_models: list[DbtModel] | None = None) -> DbtProject:
     model_a = DbtModel(
         name="model_a",
         file_path="/tmp/model_a.sql",
@@ -275,16 +279,80 @@ def _circular_project() -> DbtProject:
         project_path="/tmp/proj",
         dbt_project_file="/tmp/proj/dbt_project.yml",
         model_paths=["models"],
-        models=[model_a, model_b],
+        models=[model_a, model_b, *(extra_models or [])],
         source="manifest",
     )
 
 
-def test_build_project_lineage_raises_on_circular_ref_dependency() -> None:
+def test_resolve_circular_ref_dependencies_finds_both_models_in_a_two_cycle() -> None:
     project = _circular_project()
 
-    with pytest.raises(CircularDependencyError):
-        build_project_lineage(project)
+    excluded, warnings = resolve_circular_ref_dependencies(project)
+
+    assert excluded == {"model_a", "model_b"}
+    assert len(warnings) == 1
+    assert "model_a" in warnings[0]
+    assert "model_b" in warnings[0]
+
+
+def test_resolve_circular_ref_dependencies_empty_for_acyclic_projects(
+    manifest_project: DbtProject, static_project: DbtProject, chain_project: DbtProject
+) -> None:
+    for project in (manifest_project, static_project, chain_project):
+        excluded, warnings = resolve_circular_ref_dependencies(project)
+        assert excluded == set()
+        assert warnings == []
+
+
+def test_build_project_lineage_does_not_raise_on_circular_ref_dependency() -> None:
+    project = _circular_project()
+
+    graph = build_project_lineage(project)
+
+    assert nx.is_directed_acyclic_graph(graph)
+
+
+def test_build_project_lineage_excludes_cyclic_models_and_reports_a_warning() -> None:
+    project = _circular_project()
+
+    graph = build_project_lineage(project)
+
+    assert not any(node.model in ("model_a", "model_b") for node in graph.nodes)
+    warnings = graph.graph["lineage_warnings"]
+    assert warnings
+    assert any("model_a" in warning and "model_b" in warning for warning in warnings)
+
+
+def test_build_project_lineage_does_not_recursion_error_on_third_model_ref_into_cycle() -> None:
+    # model_c isn't part of the cycle itself, but ref()s into it -- without
+    # pruning the cyclic models out of project_schema.sources too (not just
+    # skipping them as trace targets), sqlglot's exp.expand() would still
+    # inline model_a's SQL (which references model_b, which references
+    # model_a again...) while tracing model_c, recursing without bound.
+    # Verified during development: that exact scenario raises
+    # RecursionError, not a clean, catchable failure -- so this is a
+    # regression guard, not a hypothetical.
+    model_c = DbtModel(
+        name="model_c",
+        file_path="/tmp/model_c.sql",
+        relative_path="models/model_c.sql",
+        layer="unknown",
+        raw_sql="select x from model_a",
+        ref_dependencies=[DbtDependency(dependency_type="ref", target_name="model_a")],
+        schema_name="analytics",
+        alias="model_c",
+    )
+    project = _circular_project(extra_models=[model_c])
+
+    graph = build_project_lineage(project)
+
+    assert nx.is_directed_acyclic_graph(graph)
+    # model_c's own lineage still builds -- it just terminates at model_a
+    # as an opaque leaf instead of tracing further back through the
+    # (excluded) cycle.
+    assert any(node.model == "model_c" for node in graph.nodes)
+    assert any(node.model == "model_a" for node in graph.nodes)
+    assert not any(node.model == "model_b" for node in graph.nodes)
 
 
 def test_acyclic_real_projects_do_not_raise(
