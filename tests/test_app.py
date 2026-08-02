@@ -84,6 +84,17 @@ def _run_lineage_page(project_dir: Path | None = None, model_group: str | None =
     return at
 
 
+def _run_feature_explorer_page(
+    project_dir: Path | None = None, model_group: str | None = None
+) -> AppTest:
+    at = AppTest.from_file("app.py", default_timeout=15)
+    at.switch_page("pages/feature_explorer.py")
+    _seed_shared_state(at, project_dir, model_group)
+    at.run()
+    assert not at.exception
+    return at
+
+
 def _component_payload(at: AppTest) -> dict[str, Any]:
     # AppTest can't simulate interaction with a custom component (no real
     # JS runtime executes, so the component's returned value never
@@ -97,6 +108,27 @@ def _component_payload(at: AppTest) -> dict[str, Any]:
 
 def _generate_button(at: AppTest):
     return next(b for b in at.button if b.label == "Generate artifacts (dbt parse)")
+
+
+def _write_feature_explorer_project(tmp_path: Path) -> Path:
+    # Three models whose output columns overlap by substring but not by
+    # exact name -- "id" is an exact match for the search term "id", while
+    # "customer_id"/"order_id" are only substring matches, needed to test
+    # exact-match-first sorting (docs/v0.7-plan.md Bölüm 5/Riskler).
+    project_dir = tmp_path / "feature_explorer_fixture"
+    staging_dir = project_dir / "models" / "staging"
+    staging_dir.mkdir(parents=True)
+    (project_dir / "dbt_project.yml").write_text(
+        "name: feature_explorer_fixture\nmodel-paths:\n  - models\n", encoding="utf-8"
+    )
+    (staging_dir / "stg_ids.sql").write_text("select id from raw.ids\n", encoding="utf-8")
+    (staging_dir / "stg_customers.sql").write_text(
+        "select customer_id from raw.customers\n", encoding="utf-8"
+    )
+    (staging_dir / "stg_orders.sql").write_text(
+        "select order_id from raw.orders\n", encoding="utf-8"
+    )
+    return project_dir
 
 
 def _write_minimal_project(tmp_path: Path) -> Path:
@@ -832,3 +864,119 @@ def test_model_dag_page_no_group_filter_sends_every_model(
 
     payload = _component_payload(at)
     assert len(payload["nodes"]) == 12
+
+
+# ---------------------------------------------------------------------------
+# Feature Explorer page (v0.7) -- project-wide column-name search across
+# models, no lineage tracing. Unlike Model DAG/Column Lineage, this page
+# renders no custom component (plain st.text_input/selectbox/dataframe),
+# so every one of these tests is a genuine end-to-end AppTest, not just
+# "what was sent to the component" (docs/v0.7-plan.md Bölüm 3).
+# ---------------------------------------------------------------------------
+
+
+def test_feature_explorer_shows_no_project_selected_message() -> None:
+    at = _run_feature_explorer_page()
+
+    assert any("no project selected" in info.value.lower() for info in at.info)
+
+
+def test_feature_explorer_empty_search_prompts_for_a_column_name(
+    sample_project_path: Path,
+) -> None:
+    at = _run_feature_explorer_page(sample_project_path)
+
+    assert any("column name" in info.value.lower() for info in at.info)
+    assert not at.dataframe
+
+
+def test_feature_explorer_static_mode_shows_a_metadata_warning(
+    sample_project_path: Path,
+) -> None:
+    # examples/sample_banking_dbt ships with no manifest -- static mode,
+    # so description/owner/tags/tests will all be empty for every match.
+    at = _run_feature_explorer_page(sample_project_path)
+
+    assert any(
+        "static" in warning.value.lower() and "description" in warning.value.lower()
+        for warning in at.warning
+    )
+
+
+def test_feature_explorer_search_lists_every_model_producing_the_column(
+    sample_project_path: Path,
+) -> None:
+    at = _run_feature_explorer_page(sample_project_path)
+    at.text_input(key="feature_explorer_search").set_value("customer_id").run()
+
+    select = at.selectbox(key="feature_explorer_column_select")
+    assert "customer_id" in select.options
+    select.set_value("customer_id").run()
+
+    rows = at.dataframe[0].value
+    assert len(rows) == 12
+    assert "Layer" in rows.columns
+
+
+def test_feature_explorer_search_no_match_shows_an_info_message(
+    sample_project_path: Path,
+) -> None:
+    at = _run_feature_explorer_page(sample_project_path)
+    at.text_input(key="feature_explorer_search").set_value("zzz_nonexistent_column").run()
+
+    assert any("no columns matching" in info.value.lower() for info in at.info)
+    assert not at.dataframe
+
+
+def test_feature_explorer_dataframe_columns_include_metadata_fields(
+    sample_project_path: Path,
+) -> None:
+    at = _run_feature_explorer_page(sample_project_path)
+    at.text_input(key="feature_explorer_search").set_value("customer_id").run()
+    at.selectbox(key="feature_explorer_column_select").set_value("customer_id").run()
+
+    rows = at.dataframe[0].value
+    for expected_column in ("Layer", "Model", "Description", "Owner", "Tags", "Tests"):
+        assert expected_column in rows.columns
+
+
+def test_feature_explorer_exact_match_is_sorted_before_substring_matches(
+    tmp_path: Path,
+) -> None:
+    project_dir = _write_feature_explorer_project(tmp_path)
+
+    at = _run_feature_explorer_page(project_dir)
+    at.text_input(key="feature_explorer_search").set_value("id").run()
+
+    select = at.selectbox(key="feature_explorer_column_select")
+    assert select.options[0] == "id"
+    assert set(select.options) == {"id", "customer_id", "order_id"}
+
+
+def test_feature_explorer_group_filter_from_shared_state_narrows_matches(
+    multi_domain_project_path: Path,
+) -> None:
+    # customer_id is only ever produced by retail models in this fixture
+    # (docs/v0.7-plan.md implementation check) -- selecting the lending
+    # group must make it disappear entirely, not just from display.
+    at = _run_feature_explorer_page(multi_domain_project_path, model_group="lending")
+    at.text_input(key="feature_explorer_search").set_value("customer_id").run()
+
+    assert any("no columns matching" in info.value.lower() for info in at.info)
+
+
+def test_feature_explorer_group_filter_keeps_matching_models_in_group(
+    multi_domain_project_path: Path,
+) -> None:
+    at = _run_feature_explorer_page(multi_domain_project_path, model_group="retail")
+    at.text_input(key="feature_explorer_search").set_value("customer_id").run()
+    at.selectbox(key="feature_explorer_column_select").set_value("customer_id").run()
+
+    rows = at.dataframe[0].value
+    assert len(rows) == 4
+    assert set(rows["Model"]) == {
+        "int_customer_order_summary",
+        "mart_retail_sales",
+        "stg_orders",
+        "int_order_items",
+    }
