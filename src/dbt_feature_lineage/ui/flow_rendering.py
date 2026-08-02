@@ -1,5 +1,5 @@
-"""streamlit_flow-specific conversion helpers for the Model DAG and
-Column Lineage pages.
+"""streamlit_flow-specific conversion helpers for the Model DAG, Column
+Lineage, and (v0.6) Query Flow pages.
 
 Kept separate from ui/rendering.py, which stays free of any streamlit/
 streamlit_flow import by its own module contract (so it's testable
@@ -28,6 +28,7 @@ import networkx as nx
 from streamlit_flow.elements import StreamlitFlowEdge, StreamlitFlowNode
 
 from dbt_feature_lineage.domain.lineage import ColumnNode
+from dbt_feature_lineage.domain.models import QueryFlowStep
 
 # React Flow's own default styling is light and doesn't inherit
 # Streamlit's theme -- custom components render in an isolated iframe and
@@ -163,3 +164,63 @@ def _column_node_id(node: ColumnNode) -> str:
 
 def _column_node_content(node: ColumnNode) -> str:
     return f"**{node.column}**  \n{node.model} ({node.layer})"
+
+
+def build_query_flow_elements(
+    steps: list[QueryFlowStep], theme_base: str = "light"
+) -> tuple[list[StreamlitFlowNode], list[StreamlitFlowEdge]]:
+    """Convert a build_query_flow_steps() list into React Flow elements
+    for the Query Flow tab (pages/model_explorer.py, v0.6).
+
+    Third distinct conversion in this module: a flat QueryFlowStep list
+    (already ordered source -> cte -> final_select -> output), not an
+    nx.DiGraph -- edges come from each step's own `upstream_step_ids`
+    rather than graph edges. Same shared palette/`theme_base` contract
+    and `selectable=True` requirement as the other two conversions (see
+    build_model_dag_flow_elements's docstring for why selectable matters
+    for the click -> detail-panel behavior).
+    """
+
+    node_style = _DARK_NODE_STYLE if theme_base == "dark" else _LIGHT_NODE_STYLE
+    edge_style = _DARK_EDGE_STYLE if theme_base == "dark" else _LIGHT_EDGE_STYLE
+
+    nodes = [
+        StreamlitFlowNode(
+            id=step.step_id,
+            pos=(0, 0),
+            data={"content": _query_flow_node_content(step)},
+            node_type="default",
+            source_position="right",
+            target_position="left",
+            selectable=True,
+            style=dict(node_style),
+        )
+        for step in steps
+    ]
+    edges = [
+        StreamlitFlowEdge(
+            id=f"{upstream_id}->{step.step_id}",
+            source=upstream_id,
+            target=step.step_id,
+            marker_end={"type": "arrowclosed"},
+            style=dict(edge_style),
+        )
+        for step in steps
+        for upstream_id in step.upstream_step_ids
+    ]
+    return nodes, edges
+
+
+def _query_flow_node_content(step: QueryFlowStep) -> str:
+    badges: list[str] = []
+    if step.join_types:
+        join_count = len(step.join_types)
+        badges.append(f"{join_count} join" if join_count == 1 else f"{join_count} joins")
+    if step.has_where_clause:
+        badges.append("filter")
+    if step.group_by_columns:
+        badges.append("group by")
+    if step.window_functions:
+        badges.append("window")
+    badge_line = " · ".join(badges) if badges else step.step_type
+    return f"**{step.name}**  \n{badge_line}"

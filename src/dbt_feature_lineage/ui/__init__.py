@@ -1,7 +1,6 @@
 """UI helpers for the Streamlit app."""
 
 from .rendering import (
-    build_model_flow_lines,
     describe_artifact_status,
     detect_model_groups,
     filter_models,
@@ -9,11 +8,11 @@ from .rendering import (
     filter_output_columns,
     group_models_by_layer,
     render_node_detail_panel,
+    render_query_flow_step_panel,
     summarize_model_analysis,
 )
 
 __all__ = [
-    "build_model_flow_lines",
     "describe_artifact_status",
     "detect_model_groups",
     "filter_models",
@@ -21,5 +20,6 @@ __all__ = [
     "filter_output_columns",
     "group_models_by_layer",
     "render_node_detail_panel",
+    "render_query_flow_step_panel",
     "summarize_model_analysis",
 ]

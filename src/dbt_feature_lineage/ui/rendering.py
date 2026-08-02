@@ -10,6 +10,7 @@ from dbt_feature_lineage.domain.models import (
     DbtModelAnalysis,
     DbtOutputColumn,
     DbtProject,
+    QueryFlowStep,
 )
 
 _ARTIFACT_STATUS_MESSAGES: dict[str, str] = {
@@ -177,6 +178,38 @@ def render_node_detail_panel(project: DbtProject, model_name: str) -> dict[str, 
     return panel
 
 
+def render_query_flow_step_panel(step: QueryFlowStep) -> dict[str, str]:
+    """Build the Query Flow tab's right-hand detail panel content for
+    one step (pages/model_explorer.py, v0.6).
+
+    Same pattern as render_node_detail_panel() above -- a plain function,
+    not a Streamlit render call, since AppTest can't simulate a
+    streamlit_flow node click (docs/v0.5-plan.md Bölüm 8). Fields with
+    nothing to show (a source/output step's join/filter/aggregation, or
+    a step simply lacking upstream links/output columns) are left out of
+    the returned dict entirely, same "no blank rows" contract as
+    render_node_detail_panel().
+    """
+
+    panel: dict[str, str] = {"Step": step.name, "Type": step.step_type}
+    if step.upstream_step_ids:
+        panel["Upstream"] = ", ".join(step.upstream_step_ids)
+    if step.join_types:
+        panel["Joins"] = ", ".join(step.join_types)
+    if step.has_where_clause:
+        panel["Filters"] = "where clause present"
+    if step.group_by_columns:
+        panel["Group by"] = ", ".join(step.group_by_columns)
+    if step.aggregate_functions:
+        panel["Aggregations"] = ", ".join(step.aggregate_functions)
+    if step.window_functions:
+        panel["Window functions"] = ", ".join(step.window_functions)
+    if step.output_columns:
+        panel["Output columns"] = ", ".join(c.output_name for c in step.output_columns)
+
+    return panel
+
+
 def summarize_model_analysis(analysis: DbtModelAnalysis) -> dict[str, int]:
     """Build compact model summary metrics for display."""
 
@@ -189,38 +222,3 @@ def summarize_model_analysis(analysis: DbtModelAnalysis) -> dict[str, int]:
     }
 
 
-def build_model_flow_lines(analysis: DbtModelAnalysis) -> list[str]:
-    """Build a readable vertical query-flow summary."""
-
-    lines: list[str] = []
-
-    if analysis.source_dependencies:
-        for dependency in analysis.source_dependencies:
-            lines.append(f"source: {dependency.source_name}.{dependency.target_name}")
-
-    if analysis.ref_dependencies:
-        for dependency in analysis.ref_dependencies:
-            lines.append(f"upstream model: {dependency.target_name}")
-
-    for cte_name in analysis.cte_names:
-        lines.append(f"cte: {cte_name}")
-
-    if analysis.join_count:
-        lines.append(
-            "joins: "
-            + ", ".join(analysis.join_types)
-        )
-
-    if analysis.has_where_clause:
-        lines.append("filters: where clause present")
-
-    if analysis.group_by_columns:
-        lines.append(f"aggregations: group by {', '.join(analysis.group_by_columns)}")
-
-    if analysis.window_functions:
-        lines.append("window functions: present")
-
-    lines.append("final select")
-    lines.append(f"output model: {analysis.model_name}")
-
-    return lines

@@ -3,15 +3,16 @@ from dbt_feature_lineage.domain.models import (
     DbtModelAnalysis,
     DbtOutputColumn,
     DbtProject,
+    QueryFlowStep,
 )
 from dbt_feature_lineage.ui import (
-    build_model_flow_lines,
     detect_model_groups,
     filter_models,
     filter_models_by_group,
     filter_output_columns,
     group_models_by_layer,
     render_node_detail_panel,
+    render_query_flow_step_panel,
     summarize_model_analysis,
 )
 
@@ -82,27 +83,6 @@ def test_filter_output_columns() -> None:
     filtered = filter_output_columns(columns, "risk", ["conditional"])
 
     assert [column.output_name for column in filtered] == ["risk_segment"]
-
-
-def test_build_model_flow_lines() -> None:
-    analysis = DbtModelAnalysis(
-        model_name="mart_customer_features",
-        file_path="/tmp/mart_customer_features.sql",
-        relative_path="models/marts/mart_customer_features.sql",
-        layer="marts",
-        raw_sql="select 1",
-        cte_names=["joined", "final"],
-        join_count=2,
-        join_types=["LEFT", "INNER"],
-        has_where_clause=True,
-        group_by_columns=["customer_id"],
-    )
-
-    lines = build_model_flow_lines(analysis)
-
-    assert "cte: joined" in lines
-    assert "filters: where clause present" in lines
-    assert "final select" in lines
 
 
 def test_summarize_model_analysis() -> None:
@@ -304,3 +284,72 @@ def test_filter_models_by_group_supports_multiple_selected_groups() -> None:
     filtered = filter_models_by_group(models, ["retail", "lending"])
 
     assert {model.name for model in filtered} == {"stg_orders", "stg_borrowers"}
+
+
+# ---------------------------------------------------------------------------
+# render_query_flow_step_panel() -- v0.6's Query Flow tab detail panel,
+# same pattern as render_node_detail_panel() above: a plain function
+# (AppTest can't simulate a streamlit_flow node click, docs/v0.5-plan.md
+# Bölüm 8 / docs/v0.6-plan.md Bölüm 5), boş alanlar dahil edilmez.
+# ---------------------------------------------------------------------------
+
+
+def test_render_query_flow_step_panel_includes_every_populated_field() -> None:
+    step = QueryFlowStep(
+        step_id="cte:joined",
+        step_type="cte",
+        name="joined",
+        upstream_step_ids=["cte:customers", "cte:activity"],
+        join_types=["LEFT"],
+        has_where_clause=True,
+        group_by_columns=["customer_id"],
+        aggregate_functions=["SUM"],
+        window_functions=["ROW_NUMBER() OVER (...)"],
+        output_columns=[
+            DbtOutputColumn(
+                output_name="customer_id",
+                original_sql_expression="c.customer_id",
+                transformation_type="direct",
+            )
+        ],
+    )
+
+    panel = render_query_flow_step_panel(step)
+
+    assert panel == {
+        "Step": "joined",
+        "Type": "cte",
+        "Upstream": "cte:customers, cte:activity",
+        "Joins": "LEFT",
+        "Filters": "where clause present",
+        "Group by": "customer_id",
+        "Aggregations": "SUM",
+        "Window functions": "ROW_NUMBER() OVER (...)",
+        "Output columns": "customer_id",
+    }
+
+
+def test_render_query_flow_step_panel_omits_unset_fields_without_erroring() -> None:
+    # A source step -- no join/filter/aggregation/output of its own.
+    step = QueryFlowStep(step_id="source:stg_customers", step_type="source", name="stg_customers")
+
+    panel = render_query_flow_step_panel(step)
+
+    assert panel == {"Step": "stg_customers", "Type": "source"}
+
+
+def test_render_query_flow_step_panel_no_where_clause_omits_filters_row() -> None:
+    step = QueryFlowStep(step_id="cte:a", step_type="cte", name="a", has_where_clause=False)
+
+    panel = render_query_flow_step_panel(step)
+
+    assert "Filters" not in panel
+
+
+def test_render_query_flow_step_panel_no_upstream_omits_upstream_row() -> None:
+    # A source step is always upstream-less -- must not show a blank row.
+    step = QueryFlowStep(step_id="source:x", step_type="source", name="x", upstream_step_ids=[])
+
+    panel = render_query_flow_step_panel(step)
+
+    assert "Upstream" not in panel
