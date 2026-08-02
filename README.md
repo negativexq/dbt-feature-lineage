@@ -24,8 +24,9 @@ Large dbt projects can contain many models, CTEs, joins, transformations, and fe
 - Output-column extraction and transformation-type classification
 - Streamlit model explorer with model search and layer filtering
 - Overview, Query Flow, Columns, and Raw SQL tabs
-- Cross-model column-level lineage: traces a column back through joins, coalesces, and renames to its raw source(s), via a project-wide `networkx` graph
-- `lineage` CLI command and a dedicated "Column Lineage" Streamlit page for searching a column by name and viewing its upstream chain
+- Cross-model column-level lineage: traces a column back through joins, coalesces, and renames to its raw source(s) — or forward to its downstream consumers — via a project-wide `networkx` graph
+- `lineage` CLI command and a dedicated "Column Lineage" Streamlit page for searching a column by name and viewing its upstream/downstream chain as an interactive graph
+- Model DAG: a project-wide model-level dependency graph (materialization, column count per node; owner/tests/description/tags on click) — both this and Column Lineage render via the same `streamlit-flow-component` (React Flow) interactive graph, with zoom/pan/minimap
 
 ## Demo project
 
@@ -66,15 +67,15 @@ flowchart LR
 ```text
 dbt-feature-lineage/
 ├── app.py
-├── pages/
+├── pages/                    # model_explorer.py, model_dag.py, column_lineage.py
 ├── src/dbt_feature_lineage/
 │   ├── cli.py
 │   ├── domain/
 │   ├── loaders/
 │   ├── parsers/
 │   ├── scanners/
-│   ├── services/
-│   └── ui/
+│   ├── services/             # incl. lineage_service.py, model_dag_service.py
+│   └── ui/                   # incl. flow_rendering.py (streamlit-flow-component)
 ├── tests/
 ├── examples/sample_banking_dbt/
 ├── Dockerfile
@@ -137,7 +138,7 @@ docker compose run --rm app dbt-feature-lineage lineage examples/sample_banking_
 
 ## Web interface
 
-The Streamlit application defaults to `examples/sample_banking_dbt` and has two pages, selectable from the sidebar navigation.
+The Streamlit application defaults to `examples/sample_banking_dbt` and has three pages, selectable from the sidebar navigation.
 
 **Model Explorer** — select a single model and dig into it via four tabs:
 
@@ -146,7 +147,9 @@ The Streamlit application defaults to `examples/sample_banking_dbt` and has two 
 - **Columns:** output expressions, transformation types, referenced input columns, and selected-column details
 - **Raw SQL:** original SQL and the preprocessed SQL sent to sqlglot
 
-**Column Lineage** — independent of Model Explorer's model selection; searches the whole project by column name and renders the matching column's upstream chain (back to its raw source(s)) as a graph.
+**Model DAG** — independent of Model Explorer's model selection; the whole project's model-level `ref()`/`source()` dependency graph, rendered interactively (zoom/pan/minimap) via `streamlit-flow-component`. Each node shows materialization and column count; clicking a node opens a detail panel with owner, test count, description, and tags (fields left blank when the manifest — or static mode — doesn't have them).
+
+**Column Lineage** — independent of Model Explorer's model selection; searches the whole project by column name and renders the matching column's upstream or downstream chain as the same interactive graph component Model DAG uses, for a consistent visual language between the two.
 
 <!-- Add screenshot: docs/images/model-overview.png -->
 
@@ -175,7 +178,7 @@ The MVP does not execute arbitrary dbt macros.
 - [x] Cross-model column lineage
 - [ ] Feature Store raw-source tracing
 - [ ] Impact analysis
-- [ ] Interactive lineage graph
+- [x] Interactive lineage graph
 - [ ] GitHub repository import
 - [ ] Exportable lineage metadata
 
@@ -189,7 +192,7 @@ make test
 make lint
 ```
 
-The project uses Python 3.12, Typer, Rich, Pydantic, PyYAML, sqlglot, Streamlit, Docker, pytest, and Ruff.
+The project uses Python 3.12, Typer, Rich, Pydantic, PyYAML, sqlglot, Streamlit, streamlit-flow-component, Docker, pytest, and Ruff.
 
 ## Contributing
 
