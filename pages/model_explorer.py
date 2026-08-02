@@ -6,16 +6,21 @@ from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+from streamlit_flow import streamlit_flow
+from streamlit_flow.layouts import LayeredLayout
+from streamlit_flow.state import StreamlitFlowState
 
+from dbt_feature_lineage.parsers.query_flow_parser import build_query_flow_steps
 from dbt_feature_lineage.ui import (
-    build_model_flow_lines,
     describe_artifact_status,
     filter_models,
     filter_models_by_group,
     filter_output_columns,
     group_models_by_layer,
+    render_query_flow_step_panel,
     summarize_model_analysis,
 )
+from dbt_feature_lineage.ui.flow_rendering import build_query_flow_elements
 from dbt_feature_lineage.ui.state import (
     cached_inspect_model,
     cached_load_project,
@@ -162,24 +167,51 @@ with overview_tab:
         st.warning("\n".join(analysis.parsing_warnings))
 
 with flow_tab:
-    st.subheader("Logical query flow")
-    st.code("\n".join(build_model_flow_lines(analysis)), language="text")
+    # build_query_flow_steps() is cheap (~16ms even on the most complex
+    # real fixture model -- measured, not assumed, docs/v0.6-plan.md
+    # Bölüm 7) so it's called directly on every rerun, no st.cache_data
+    # wrapper needed the way cached_build_model_dag/cached_build_project_lineage
+    # need one for their much more expensive whole-project graph builds.
+    query_flow_steps = build_query_flow_steps(analysis.raw_sql, model_name=analysis.model_name)
 
-    st.subheader("CTE details")
-    for cte_name in analysis.cte_names:
-        with st.expander(cte_name):
-            st.write(f"CTE name: `{cte_name}`")
-            aliases = {
-                alias: relation
-                for alias, relation in analysis.table_aliases.items()
-                if relation == cte_name or alias == cte_name
-            }
-            if aliases:
-                st.write(f"Known aliases: {aliases}")
+    # Same session_state-persisted StreamlitFlowState pattern as
+    # pages/model_dag.py -- rebuilt whenever the selected model (or
+    # project) changes, so a previous model's stale nodes/edges/pan/zoom
+    # never linger.
+    query_flow_key = (str(resolved_path), selected_model_name)
+    if (
+        "query_flow_state" not in st.session_state
+        or st.session_state.get("query_flow_state_key") != query_flow_key
+    ):
+        theme_base = st.get_option("theme.base") or "light"
+        flow_nodes, flow_edges = build_query_flow_elements(query_flow_steps, theme_base)
+        st.session_state.query_flow_state = StreamlitFlowState(flow_nodes, flow_edges)
+        st.session_state.query_flow_state_key = query_flow_key
 
-    if analysis.join_types:
-        st.subheader("Join summary")
-        st.write(", ".join(analysis.join_types))
+    diagram_col, panel_col = st.columns([3, 1])
+    with diagram_col:
+        query_flow_new_state = streamlit_flow(
+            "query_flow",
+            st.session_state.query_flow_state,
+            layout=LayeredLayout(direction="right"),
+            fit_view=True,
+            show_controls=True,
+            show_minimap=True,
+            get_node_on_click=True,
+        )
+        st.session_state.query_flow_state = query_flow_new_state
+
+    with panel_col:
+        st.subheader("Details")
+        selected_step = next(
+            (step for step in query_flow_steps if step.step_id == query_flow_new_state.selected_id),
+            None,
+        )
+        if selected_step is not None:
+            for label, value in render_query_flow_step_panel(selected_step).items():
+                st.write(f"**{label}:** {value}")
+        else:
+            st.caption("Click a node to see its details here.")
 
 with columns_tab:
     st.subheader("Output columns")
