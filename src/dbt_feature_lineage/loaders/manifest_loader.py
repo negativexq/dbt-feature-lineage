@@ -15,7 +15,7 @@ from dbt_feature_lineage.domain.models import (
     DbtSource,
     DbtSourceTable,
 )
-from dbt_feature_lineage.scanners.model_scanner import detect_model_layer
+from dbt_feature_lineage.scanners.model_scanner import detect_model_layer, extract_model_group
 
 SUPPORTED_MANIFEST_SCHEMA_VERSIONS = frozenset({"v11", "v12"})
 
@@ -108,6 +108,7 @@ def _parse_models(nodes: dict[str, Any], project_root: Path) -> list[DbtModel]:
                 tags=node.get("tags") or [],
                 owner=(node.get("meta") or {}).get("owner"),
                 test_count=test_counts.get(node["name"], 0),
+                model_group=extract_model_group(relative_path),
             )
         )
     return sorted(models, key=lambda model: model.name)

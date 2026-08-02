@@ -49,6 +49,7 @@ class DbtModel(BaseModel):
     tags: list[str] = Field(default_factory=list)
     owner: str | None = None
     test_count: int = 0
+    model_group: str | None = None
 
     model_config = ConfigDict(populate_by_name=True)
 
