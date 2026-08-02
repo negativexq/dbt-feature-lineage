@@ -28,6 +28,7 @@ Large dbt projects can contain many models, CTEs, joins, transformations, and fe
 - `lineage` CLI command and a dedicated "Column Lineage" Streamlit page for searching a column by name and viewing its upstream/downstream chain as an interactive graph
 - Model DAG: a project-wide model-level dependency graph (materialization, column count per node; owner/tests/description/tags on click) — both this and Column Lineage render via the same `streamlit-flow-component` (React Flow) interactive graph, with zoom/pan/minimap
 - Shared "Select Project" page: scans a root directory for dbt projects and lets you pick one project and (optionally) one model group once — Model Explorer, Model DAG, and Column Lineage all read that same shared selection instead of asking for a project path or group individually
+- Query Flow Visualization: Model Explorer's Query Flow tab renders a single model's own source → CTE → final select → output steps as the same interactive `streamlit-flow-component` graph used by Model DAG/Column Lineage, with each CTE's own joins/filters/aggregations shown as node badges and a click-to-inspect detail panel
 
 ## Demo project
 
@@ -146,7 +147,7 @@ The Streamlit application has four pages, selectable from the sidebar navigation
 **Model Explorer** — select a single model and dig into it via four tabs:
 
 - **Overview:** model path, layer, upstream models, source dependencies, and summary counts
-- **Query Flow:** sources, upstream models, CTEs, joins, filters, aggregations, and final output
+- **Query Flow:** an interactive diagram of the model's own source → CTE → final select → output steps (same `streamlit-flow-component` graph as Model DAG/Column Lineage); each step's own joins/filters/aggregations show as node badges, and clicking a step opens a detail panel with its upstream links and output columns
 - **Columns:** output expressions, transformation types, referenced input columns, and selected-column details
 - **Raw SQL:** original SQL and the preprocessed SQL sent to sqlglot
 
@@ -182,6 +183,7 @@ The MVP does not execute arbitrary dbt macros.
 - [ ] Feature Store raw-source tracing
 - [ ] Impact analysis
 - [x] Interactive lineage graph
+- [x] Query Flow Visualization
 - [ ] GitHub repository import
 - [ ] Exportable lineage metadata
 
