@@ -6,7 +6,9 @@ from dbt_feature_lineage.domain.models import (
 )
 from dbt_feature_lineage.ui import (
     build_model_flow_lines,
+    detect_model_groups,
     filter_models,
+    filter_models_by_group,
     filter_output_columns,
     group_models_by_layer,
     render_node_detail_panel,
@@ -224,3 +226,81 @@ def test_render_node_detail_panel_unknown_model_returns_empty_dict() -> None:
     panel = render_node_detail_panel(project, "does_not_exist")
 
     assert panel == {}
+
+
+# ---------------------------------------------------------------------------
+# detect_model_groups() / filter_models_by_group() / filter_column_nodes_by_group()
+# -- the Model Group sidebar filter, shared by all three pages.
+# ---------------------------------------------------------------------------
+
+
+def _model(name: str, model_group: str | None = None) -> DbtModel:
+    return DbtModel(
+        name=name,
+        file_path=f"/tmp/{name}.sql",
+        relative_path=f"models/{name}.sql",
+        layer="unknown",
+        raw_sql="select 1",
+        model_group=model_group,
+    )
+
+
+def test_detect_model_groups_returns_sorted_distinct_groups() -> None:
+    models = [
+        _model("stg_orders", "retail"),
+        _model("stg_borrowers", "lending"),
+        _model("mart_top_products", "retail"),
+    ]
+
+    assert detect_model_groups(models) == ["lending", "retail"]
+
+
+def test_detect_model_groups_excludes_none() -> None:
+    models = [_model("stg_orders", "retail"), _model("stg_customers", None)]
+
+    assert detect_model_groups(models) == ["retail"]
+
+
+def test_detect_model_groups_empty_for_a_flat_layout() -> None:
+    # examples/sample_banking_dbt style -- no model has a model_group at all.
+    models = [_model("stg_customers"), _model("mart_customer_features")]
+
+    assert detect_model_groups(models) == []
+
+
+def test_filter_models_by_group_keeps_only_selected_groups() -> None:
+    models = [
+        _model("stg_orders", "retail"),
+        _model("stg_borrowers", "lending"),
+        _model("mart_top_products", "retail"),
+    ]
+
+    filtered = filter_models_by_group(models, ["retail"])
+
+    assert {model.name for model in filtered} == {"stg_orders", "mart_top_products"}
+
+
+def test_filter_models_by_group_empty_selection_returns_all() -> None:
+    models = [_model("stg_orders", "retail"), _model("stg_borrowers", "lending")]
+
+    assert filter_models_by_group(models, []) == models
+
+
+def test_filter_models_by_group_excludes_none_group_when_filter_active() -> None:
+    models = [_model("stg_orders", "retail"), _model("stg_untagged", None)]
+
+    filtered = filter_models_by_group(models, ["retail"])
+
+    assert {model.name for model in filtered} == {"stg_orders"}
+
+
+def test_filter_models_by_group_supports_multiple_selected_groups() -> None:
+    models = [
+        _model("stg_orders", "retail"),
+        _model("stg_borrowers", "lending"),
+        _model("stg_other", "shipping"),
+    ]
+
+    filtered = filter_models_by_group(models, ["retail", "lending"])
+
+    assert {model.name for model in filtered} == {"stg_orders", "stg_borrowers"}

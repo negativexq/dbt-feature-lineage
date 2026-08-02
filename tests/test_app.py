@@ -1,5 +1,23 @@
-"""Tests for the Streamlit app's two pages: Model Explorer (artifact-vs-static
-UI flow) and Column Lineage (project-wide column search).
+"""Tests for the Streamlit app's four pages: Select Project (shared
+project/model-group picker), Model Explorer (artifact-vs-static UI
+flow), Model DAG (project-wide model graph), and Column Lineage
+(project-wide column search).
+
+Test strategy for the shared-state design (v0.6): AppTest cannot
+reliably simulate a full user journey through st.switch_page() the way
+a real browser can (a throwaway sandbox spike confirmed session_state
+*does* survive switch_page/sidebar navigation in a real browser, within
+one session -- but driving that same journey through AppTest by
+simulating clicks across page transitions is exactly the fragile pattern
+this project's docs call out avoiding). So every test for Model
+Explorer/Model DAG/Column Lineage pre-seeds
+at.session_state["shared_project_path"]/["shared_model_group"] directly,
+*before* the page's first .run() -- exactly what pages/select_project.py's
+own "Devam et" button would have written, without needing to actually
+run that page's script first. Select Project's own page gets its own
+tests exercising its actual UI (scan root, pick project/group, click
+"Devam et") since that's the one page where driving the real widget flow
+*is* the thing under test.
 
 No test here invokes a real `dbt` CLI -- dbt_feature_lineage.loaders.artifact_detector's
 shutil/subprocess entry points are always monkeypatched.
@@ -21,27 +39,47 @@ from dbt_feature_lineage.loaders import artifact_detector
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
 
-def _run_app() -> AppTest:
-    # Model Explorer (the default page) no longer builds the lineage graph
-    # at all -- st.navigation() pages are lazy (only the active page's
-    # script executes), unlike the single-page st.tabs() layout this
-    # replaced, where every tab body ran on every rerun regardless of
-    # visibility. 15s is just a safety margin, not a reflection of actual
-    # cost (verified: loading the 12-model default project here takes
-    # well under a second).
+def _run_select_project_page(root_dir: Path | None = None) -> AppTest:
+    # Select Project is now the default/first page -- no switch_page needed.
     at = AppTest.from_file("app.py", default_timeout=15)
+    at.run()
+    if root_dir is not None:
+        at.text_input(key="select_project_root").set_value(str(root_dir)).run()
+    assert not at.exception
+    return at
+
+
+def _seed_shared_state(at: AppTest, project_dir: Path | None, model_group: str | None) -> None:
+    if project_dir is not None:
+        at.session_state["shared_project_path"] = str(project_dir)
+        at.session_state["shared_model_group"] = model_group
+
+
+def _run_model_explorer_page(
+    project_dir: Path | None = None, model_group: str | None = None
+) -> AppTest:
+    at = AppTest.from_file("app.py", default_timeout=15)
+    at.switch_page("pages/model_explorer.py")
+    _seed_shared_state(at, project_dir, model_group)
     at.run()
     assert not at.exception
     return at
 
 
-def _run_model_dag_page(project_dir: Path | None = None) -> AppTest:
-    # Same lazy-page reasoning as _run_lineage_page: switch_page() before
-    # the first .run() means Model Explorer's own script never executes.
+def _run_model_dag_page(project_dir: Path | None = None, model_group: str | None = None) -> AppTest:
     at = AppTest.from_file("app.py", default_timeout=20)
-    at.switch_page("pages/model_dag.py").run()
-    if project_dir is not None:
-        at.text_input(key="model_dag_project_path").set_value(str(project_dir)).run()
+    at.switch_page("pages/model_dag.py")
+    _seed_shared_state(at, project_dir, model_group)
+    at.run()
+    assert not at.exception
+    return at
+
+
+def _run_lineage_page(project_dir: Path | None = None, model_group: str | None = None) -> AppTest:
+    at = AppTest.from_file("app.py", default_timeout=20)
+    at.switch_page("pages/column_lineage.py")
+    _seed_shared_state(at, project_dir, model_group)
+    at.run()
     assert not at.exception
     return at
 
@@ -55,22 +93,6 @@ def _component_payload(at: AppTest) -> dict[str, Any]:
     # tests assert on here, instead of the component's own rendering.
     component = at.get("component_instance")[0]
     return json.loads(component.proto.json_args)
-
-
-def _run_lineage_page(project_dir: Path | None = None) -> AppTest:
-    # switch_page() before the first .run() skips executing Model Explorer
-    # at all (verified: it works even on a never-run AppTest instance).
-    # The very first render of Column Lineage still uses its default
-    # (12-model example) project path -- AppTest has no way to seed widget
-    # state before a page's first execution -- but st.cache_data persists
-    # across AppTest instances within the same pytest process, so only the
-    # first test in the whole suite that reaches this page pays that cost.
-    at = AppTest.from_file("app.py", default_timeout=20)
-    at.switch_page("pages/column_lineage.py").run()
-    if project_dir is not None:
-        at.text_input[0].set_value(str(project_dir)).run()
-    assert not at.exception
-    return at
 
 
 def _generate_button(at: AppTest):
@@ -132,13 +154,154 @@ def _write_manifest_with_broken_model(tmp_path: Path) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# Model Explorer page (default page, app.py)
+# Select Project page (pages/select_project.py, default/first page)
 # ---------------------------------------------------------------------------
 
 
-def test_default_project_has_no_manifest_and_shows_generate_button() -> None:
+def test_select_project_lists_discovered_projects_under_the_root() -> None:
+    at = _run_select_project_page()  # default root: "examples"
+
+    project_box = at.selectbox(key="select_project_project")
+    assert any("sample_banking_dbt" in option for option in project_box.options)
+    assert any("multi_domain_dbt" in option for option in project_box.options)
+
+
+def test_select_project_shows_error_for_a_nonexistent_root(tmp_path: Path) -> None:
+    at = _run_select_project_page(tmp_path / "does_not_exist")
+
+    assert any("does not exist" in error.value.lower() for error in at.error)
+
+
+def test_select_project_shows_warning_when_root_has_no_dbt_projects(tmp_path: Path) -> None:
+    (tmp_path / "just_a_folder").mkdir()
+
+    at = _run_select_project_page(tmp_path)
+
+    assert any("no dbt projects" in warning.value.lower() for warning in at.warning)
+
+
+def test_select_project_shows_group_selectbox_for_a_multi_domain_project(
+    multi_domain_project_path: Path,
+) -> None:
+    at = _run_select_project_page(multi_domain_project_path.parent)
+
+    project_box = at.selectbox(key="select_project_project")
+    multi_domain_option = next(
+        option for option in project_box.options if "multi_domain_dbt" in option
+    )
+    project_box.set_value(multi_domain_option).run()
+
+    group_box = at.selectbox(key="select_project_group")
+    assert group_box.options == ["All", "lending", "retail"]
+
+
+def test_select_project_hides_group_selectbox_for_a_flat_project(
+    sample_project_path: Path,
+) -> None:
+    at = _run_select_project_page(sample_project_path.parent)
+
+    project_box = at.selectbox(key="select_project_project")
+    flat_option = next(option for option in project_box.options if "sample_banking_dbt" in option)
+    project_box.set_value(flat_option).run()
+
+    with pytest.raises(KeyError):
+        at.selectbox(key="select_project_group")
+
+
+def test_select_project_continue_writes_shared_session_state_and_navigates(
+    multi_domain_project_path: Path,
+) -> None:
+    at = _run_select_project_page(multi_domain_project_path.parent)
+
+    project_box = at.selectbox(key="select_project_project")
+    multi_domain_option = next(
+        option for option in project_box.options if "multi_domain_dbt" in option
+    )
+    project_box.set_value(multi_domain_option).run()
+
+    group_box = at.selectbox(key="select_project_group")
+    group_box.set_value("retail").run()
+
+    at.button(key="select_project_continue").click().run()
+
+    assert not at.exception
+    assert at.session_state["shared_project_path"] == str(multi_domain_project_path)
+    assert at.session_state["shared_model_group"] == "retail"
+    # "Devam et" calls st.switch_page("pages/model_explorer.py") -- the
+    # click+run above executes that transition within the same AppTest
+    # run, so `at` now reflects Model Explorer's own rendered output.
+    assert any("Current project" in caption.value for caption in at.caption)
+
+
+def test_select_project_continue_writes_none_group_when_all_selected(
+    multi_domain_project_path: Path,
+) -> None:
+    at = _run_select_project_page(multi_domain_project_path.parent)
+
+    project_box = at.selectbox(key="select_project_project")
+    multi_domain_option = next(
+        option for option in project_box.options if "multi_domain_dbt" in option
+    )
+    project_box.set_value(multi_domain_option).run()
+    # "All" is the default selectbox value already -- no need to change it.
+
+    at.button(key="select_project_continue").click().run()
+
+    assert at.session_state["shared_model_group"] is None
+
+
+def test_select_project_continue_writes_none_group_for_a_flat_project(
+    sample_project_path: Path,
+) -> None:
+    at = _run_select_project_page(sample_project_path.parent)
+
+    project_box = at.selectbox(key="select_project_project")
+    flat_option = next(option for option in project_box.options if "sample_banking_dbt" in option)
+    project_box.set_value(flat_option).run()
+
+    at.button(key="select_project_continue").click().run()
+
+    assert at.session_state["shared_model_group"] is None
+
+
+# ---------------------------------------------------------------------------
+# "No project selected" state -- Model Explorer/Model DAG/Column Lineage all
+# require shared_project_path and must not try to load anything without it.
+# ---------------------------------------------------------------------------
+
+
+def test_model_explorer_shows_no_project_selected_message() -> None:
+    at = _run_model_explorer_page()  # no project_dir -- session_state stays empty
+
+    assert not at.exception
+    assert any("no project selected" in info.value.lower() for info in at.info)
+    assert not at.success
+
+
+def test_model_dag_page_shows_no_project_selected_message() -> None:
+    at = _run_model_dag_page()
+
+    assert not at.exception
+    assert any("no project selected" in info.value.lower() for info in at.info)
+
+
+def test_lineage_page_shows_no_project_selected_message() -> None:
+    at = _run_lineage_page()
+
+    assert not at.exception
+    assert any("no project selected" in info.value.lower() for info in at.info)
+
+
+# ---------------------------------------------------------------------------
+# Model Explorer page
+# ---------------------------------------------------------------------------
+
+
+def test_default_project_has_no_manifest_and_shows_generate_button(
+    sample_project_path: Path,
+) -> None:
     # examples/sample_banking_dbt has no target/manifest.json checked in.
-    at = _run_app()
+    at = _run_model_explorer_page(sample_project_path)
 
     assert any("Loaded project: sample_banking_dbt" in success.value for success in at.success)
     assert any(button.label == "Generate artifacts (dbt parse)" for button in at.button)
@@ -146,12 +309,23 @@ def test_default_project_has_no_manifest_and_shows_generate_button() -> None:
     assert not at.warning
 
 
+def test_model_explorer_shows_current_project_and_group_caption(
+    sample_project_path: Path,
+) -> None:
+    at = _run_model_explorer_page(sample_project_path, model_group=None)
+
+    assert any(
+        "sample_banking_dbt" in caption.value and "All" in caption.value
+        for caption in at.caption
+    )
+
+
 def test_generate_button_dbt_cli_unavailable_shows_warning(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, sample_project_path: Path
 ) -> None:
     monkeypatch.setattr(artifact_detector.shutil, "which", lambda _name: None)
 
-    at = _run_app()
+    at = _run_model_explorer_page(sample_project_path)
     _generate_button(at).click().run()
 
     assert not at.exception
@@ -170,8 +344,7 @@ def test_generate_button_no_profile_shows_warning(
     monkeypatch.setattr(artifact_detector.shutil, "which", lambda _name: "/usr/local/bin/dbt")
     monkeypatch.setattr(artifact_detector, "_resolve_profiles_dir", lambda _project_dir: None)
 
-    at = _run_app()
-    at.text_input[0].set_value(str(project_dir)).run()
+    at = _run_model_explorer_page(project_dir)
     _generate_button(at).click().run()
 
     assert not at.exception
@@ -227,8 +400,7 @@ def test_generate_button_success_shows_manifest_success_message(
 
     monkeypatch.setattr(artifact_detector.subprocess, "run", fake_run)
 
-    at = _run_app()
-    at.text_input[0].set_value(str(project_dir)).run()
+    at = _run_model_explorer_page(project_dir)
     _generate_button(at).click().run()
 
     # The generation itself triggers a rerun once the manifest is on disk,
@@ -241,10 +413,60 @@ def test_generate_button_success_shows_manifest_success_message(
     assert not any(button.label == "Generate artifacts (dbt parse)" for button in at.button)
 
 
+def test_model_explorer_loads_quickly(sample_project_path: Path) -> None:
+    # Loading the 12-model default project must be fast -- no expensive
+    # graph build happens on this page at all.
+    start = time.monotonic()
+    _run_model_explorer_page(sample_project_path)
+    elapsed = time.monotonic() - start
+
+    assert elapsed < 5.0
+
+
+def test_model_explorer_does_not_execute_lineage_page_at_all(sample_project_path: Path) -> None:
+    # Visiting Model Explorer must not execute pages/column_lineage.py's
+    # script -- its "lineage_search" widget must simply not exist, proving
+    # the page split (not just a spinner) is what makes this lazy.
+    at = _run_model_explorer_page(sample_project_path)
+
+    with pytest.raises(KeyError):
+        at.text_input(key="lineage_search")
+
+
+def test_model_explorer_does_not_execute_model_dag_page_at_all(sample_project_path: Path) -> None:
+    at = _run_model_explorer_page(sample_project_path)
+
+    with pytest.raises(KeyError):
+        at.multiselect(key="model_dag_group_filter")
+
+
 # ---------------------------------------------------------------------------
-# Column Lineage page (pages/column_lineage.py) -- project-wide, its own
-# "dbt project path" input, independent of Model Explorer's sidebar model
-# selection (docs/v0.4-plan.md/v0.4 multi-page follow-up).
+# Model Explorer: shared model-group selection narrows the model list
+# ---------------------------------------------------------------------------
+
+
+def test_model_explorer_group_filter_from_shared_state_narrows_the_model_list(
+    multi_domain_project_path: Path,
+) -> None:
+    at = _run_model_explorer_page(multi_domain_project_path, model_group="retail")
+
+    radio = at.radio(key="model_explorer_model_picker")
+    assert len(radio.options) == 6
+    assert not any("borrower" in label or "loan" in label for label in radio.options)
+    assert any("stg_orders" in label for label in radio.options)
+
+
+def test_model_explorer_no_group_filter_shows_every_model(
+    multi_domain_project_path: Path,
+) -> None:
+    at = _run_model_explorer_page(multi_domain_project_path, model_group=None)
+
+    radio = at.radio(key="model_explorer_model_picker")
+    assert len(radio.options) == 12
+
+
+# ---------------------------------------------------------------------------
+# Column Lineage page
 # ---------------------------------------------------------------------------
 
 
@@ -369,31 +591,9 @@ def test_lineage_page_shows_lineage_warnings(tmp_path: Path) -> None:
     assert any("broken_model" in warning.value for warning in at.warning)
 
 
-def test_model_explorer_does_not_execute_lineage_page_at_all() -> None:
-    # Visiting Model Explorer must not execute pages/column_lineage.py's
-    # script -- its "lineage_search" widget must simply not exist, proving
-    # the page split (not just a spinner) is what makes this lazy.
-    at = _run_app()
-
-    with pytest.raises(KeyError):
-        at.text_input(key="lineage_search")
-
-
-def test_model_explorer_loads_quickly_despite_slow_lineage_build() -> None:
-    # Concrete performance verification for the page split: loading the
-    # default (12-model) project on Model Explorer must be fast, even
-    # though building its full lineage graph (only triggered by visiting
-    # Column Lineage, per the test above) takes several seconds cold.
-    start = time.monotonic()
-    _run_app()
-    elapsed = time.monotonic() - start
-
-    assert elapsed < 5.0
-
-
 def test_lineage_page_is_independent_of_model_explorer_selection(tmp_path: Path) -> None:
-    # The Column Lineage page has its own project-path input; it must not
-    # depend on anything selected on Model Explorer's sidebar.
+    # The Column Lineage page reads shared_project_path itself; it must
+    # not depend on anything selected on Model Explorer's sidebar.
     project_dir = _write_manifest_project(tmp_path, "manifest_lineage_chain.json")
     at = _run_lineage_page(project_dir)
 
@@ -404,12 +604,36 @@ def test_lineage_page_is_independent_of_model_explorer_selection(tmp_path: Path)
 
 
 # ---------------------------------------------------------------------------
-# Model DAG page (pages/model_dag.py) -- project-wide, its own "dbt
-# project path" input, independent of Model Explorer's sidebar selection.
-# Test strategy per docs/v0.5-plan.md Bölüm 8: AppTest can find the
-# streamlit_flow component and inspect exactly what was sent to it
-# (json_args), but can't simulate node-click interaction with it -- so
-# page tests assert on the outgoing payload, not on rendered output.
+# Column Lineage: shared model-group selection narrows the lineage graph
+# itself (not just search results -- see pages/column_lineage.py's module
+# docstring for why that's a deliberate v0.6 behavior change from v0.5).
+# ---------------------------------------------------------------------------
+
+
+def test_lineage_page_group_filter_from_shared_state_narrows_search_results(
+    multi_domain_project_path: Path,
+) -> None:
+    at = _run_lineage_page(multi_domain_project_path, model_group="retail")
+    at.text_input(key="lineage_search").set_value("id").run()
+
+    match_box = at.selectbox(key="lineage_match")
+    assert all("borrower_id" not in option for option in match_box.options)
+    assert any("order_id" in option for option in match_box.options)
+
+
+def test_lineage_page_no_group_filter_includes_every_domain(
+    multi_domain_project_path: Path,
+) -> None:
+    at = _run_lineage_page(multi_domain_project_path, model_group=None)
+    at.text_input(key="lineage_search").set_value("id").run()
+
+    match_box = at.selectbox(key="lineage_match")
+    assert any("borrower_id" in option for option in match_box.options)
+    assert any("order_id" in option for option in match_box.options)
+
+
+# ---------------------------------------------------------------------------
+# Model DAG page
 # ---------------------------------------------------------------------------
 
 
@@ -462,16 +686,6 @@ def test_model_dag_page_is_independent_of_model_explorer_selection(tmp_path: Pat
     assert len(payload["nodes"]) == 3
 
 
-def test_model_explorer_does_not_execute_model_dag_page_at_all() -> None:
-    # Visiting Model Explorer must not execute pages/model_dag.py's script
-    # -- its "dbt project path" widget must simply not exist, proving the
-    # page split makes it lazy the same way it does for Column Lineage.
-    at = _run_app()
-
-    with pytest.raises(KeyError):
-        at.text_input(key="model_dag_project_path")
-
-
 def test_model_dag_page_shows_circular_dependency_warning(tmp_path: Path) -> None:
     manifest_data = json.loads((FIXTURES_DIR / "manifest_lineage_chain.json").read_text())
     # Make int_customer_activity ref() back to mart_customer_overview too,
@@ -493,3 +707,36 @@ def test_model_dag_page_shows_circular_dependency_warning(tmp_path: Path) -> Non
     # excluded entirely (model_dag_service.build_model_dag()'s
     # warn-and-exclude contract, not a raise).
     assert {node["id"] for node in payload["nodes"]} == {"stg_customers"}
+
+
+# ---------------------------------------------------------------------------
+# Model DAG: shared model-group selection narrows the graph itself (built
+# from a group-filtered project via cached_build_model_dag's selected_group,
+# not filtered post-hoc -- see ui/state.py).
+# ---------------------------------------------------------------------------
+
+
+def test_model_dag_page_group_filter_from_shared_state_narrows_the_graph(
+    multi_domain_project_path: Path,
+) -> None:
+    at = _run_model_dag_page(multi_domain_project_path, model_group="retail")
+
+    payload = _component_payload(at)
+    assert len(payload["nodes"]) == 6
+    assert {node["id"] for node in payload["nodes"]} == {
+        "stg_orders",
+        "stg_products",
+        "int_order_items",
+        "int_customer_order_summary",
+        "mart_retail_sales",
+        "mart_top_products",
+    }
+
+
+def test_model_dag_page_no_group_filter_sends_every_model(
+    multi_domain_project_path: Path,
+) -> None:
+    at = _run_model_dag_page(multi_domain_project_path, model_group=None)
+
+    payload = _component_payload(at)
+    assert len(payload["nodes"]) == 12

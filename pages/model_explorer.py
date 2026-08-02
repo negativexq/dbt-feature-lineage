@@ -11,12 +11,12 @@ from dbt_feature_lineage.ui import (
     build_model_flow_lines,
     describe_artifact_status,
     filter_models,
+    filter_models_by_group,
     filter_output_columns,
     group_models_by_layer,
     summarize_model_analysis,
 )
 from dbt_feature_lineage.ui.state import (
-    DEFAULT_PROJECT_PATH,
     cached_inspect_model,
     cached_load_project,
     generate_artifacts_and_reload,
@@ -35,11 +35,18 @@ def _truncate_expression(expression: str, max_length: int = 120) -> str:
 st.title("dbt Feature Lineage")
 st.caption("Local dbt project discovery and model inspection")
 
-project_path = st.text_input("dbt project path", value=DEFAULT_PROJECT_PATH)
+if "shared_project_path" not in st.session_state:
+    st.info("No project selected yet.")
+    st.page_link("pages/select_project.py", label="Select a project", icon="🗂️")
+    st.stop()
+
+project_path = st.session_state["shared_project_path"]
+selected_group = st.session_state.get("shared_model_group")
 resolved_path = Path(project_path).expanduser()
 
 if not resolved_path.exists():
     st.error(f"Project path does not exist: {resolved_path}")
+    st.page_link("pages/select_project.py", label="Select a project", icon="🗂️")
     st.stop()
 
 try:
@@ -47,6 +54,12 @@ try:
 except (FileNotFoundError, NotADirectoryError, ValueError) as exc:
     st.error(str(exc))
     st.stop()
+
+header_col, change_col = st.columns([4, 1])
+with header_col:
+    st.caption(f"Current project: **{project.name}** (group: {selected_group or 'All'})")
+with change_col:
+    st.page_link("pages/select_project.py", label="Change", icon="🔄")
 
 if project.artifact_status is not None and project.artifact_status.mode == "static":
     if st.button("Generate artifacts (dbt parse)"):
@@ -72,8 +85,17 @@ st.success(f"Loaded project: {project.name}")
 with st.sidebar:
     st.header("Models")
     search_term = st.text_input("Search models", value="")
+
+    # Group filtering happens once, up front, on Select Project -- this
+    # page only ever sees the already-narrowed model list. (Distinct from
+    # v0.5, where each of the three pages had its own live group
+    # multiselect; see docs/... shared-state redesign notes.)
+    project_models = filter_models_by_group(
+        project.models, [selected_group] if selected_group else []
+    )
+
     available_layers = [
-        layer for layer in LAYER_ORDER if any(model.layer == layer for model in project.models)
+        layer for layer in LAYER_ORDER if any(model.layer == layer for model in project_models)
     ]
     selected_layers = st.multiselect(
         "Filter layers",
@@ -81,7 +103,7 @@ with st.sidebar:
         default=available_layers,
     )
 
-    filtered_models = filter_models(project.models, search_term)
+    filtered_models = filter_models(project_models, search_term)
     if selected_layers:
         filtered_models = [model for model in filtered_models if model.layer in selected_layers]
 
@@ -99,6 +121,7 @@ with st.sidebar:
         "Select a model",
         options=[label for label, _ in model_options],
         index=0,
+        key="model_explorer_model_picker",
     )
     selected_model_name = dict(model_options)[selected_label]
 

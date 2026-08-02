@@ -61,6 +61,7 @@ def build_model_dag(project: DbtProject) -> nx.DiGraph:
             tags=model.tags,
             test_count=model.test_count,
             owner=model.owner,
+            model_group=model.model_group,
             column_count=len(project_schema.columns_by_model.get(model.name, [])),
         )
 

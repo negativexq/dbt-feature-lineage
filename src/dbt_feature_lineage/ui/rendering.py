@@ -52,6 +52,36 @@ def filter_models(models: list[DbtModel], search_term: str) -> list[DbtModel]:
     ]
 
 
+def detect_model_groups(models: list[DbtModel]) -> list[str]:
+    """Sorted distinct model_group values across models, None excluded.
+
+    Callers use this to decide whether a "Model Group" filter widget is
+    worth showing at all -- a project with zero or one distinct group
+    (examples/sample_banking_dbt's flat layout, or any project that
+    hasn't adopted a domain-per-folder convention) has nothing to filter
+    by, so the widget should stay hidden rather than offer a single
+    always-selected, do-nothing option.
+    """
+
+    return sorted({model.model_group for model in models if model.model_group is not None})
+
+
+def filter_models_by_group(models: list[DbtModel], selected_groups: list[str]) -> list[DbtModel]:
+    """Filter models by model_group membership.
+
+    Empty `selected_groups` means no filtering (show everything) -- same
+    "empty selection defensively shows all, not nothing" contract
+    pages/model_explorer.py's existing layer-filter multiselect already
+    relies on. A model whose model_group is None (flat layout, or a
+    project mixing grouped and ungrouped models) is excluded once a real
+    filter is active, since it doesn't belong to any selected group.
+    """
+
+    if not selected_groups:
+        return models
+    return [model for model in models if model.model_group in selected_groups]
+
+
 def filter_output_columns(
     output_columns: list[DbtOutputColumn],
     search_term: str,
