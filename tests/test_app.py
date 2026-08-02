@@ -13,10 +13,10 @@ this project's docs call out avoiding). So every test for Model
 Explorer/Model DAG/Column Lineage pre-seeds
 at.session_state["shared_project_path"]/["shared_model_group"] directly,
 *before* the page's first .run() -- exactly what pages/select_project.py's
-own "Devam et" button would have written, without needing to actually
+own "Continue" button would have written, without needing to actually
 run that page's script first. Select Project's own page gets its own
 tests exercising its actual UI (scan root, pick project/group, click
-"Devam et") since that's the one page where driving the real widget flow
+"Continue") since that's the one page where driving the real widget flow
 *is* the thing under test.
 
 No test here invokes a real `dbt` CLI -- dbt_feature_lineage.loaders.artifact_detector's
@@ -259,7 +259,7 @@ def test_select_project_continue_writes_shared_session_state_and_navigates(
     assert not at.exception
     assert at.session_state["shared_project_path"] == str(multi_domain_project_path)
     assert at.session_state["shared_model_group"] == "retail"
-    # "Devam et" calls st.switch_page("pages/model_explorer.py") -- the
+    # "Continue" calls st.switch_page("pages/model_explorer.py") -- the
     # click+run above executes that transition within the same AppTest
     # run, so `at` now reflects Model Explorer's own rendered output.
     assert any("Current project" in caption.value for caption in at.caption)

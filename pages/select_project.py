@@ -4,7 +4,7 @@ First/default page in the nav -- Model Explorer, Model DAG, and Column
 Lineage no longer each have their own "dbt project path" input and (for
 the latter two) their own group filter widget; they all read
 `st.session_state["shared_project_path"]`/`["shared_model_group"]`,
-written here once via "Devam et".
+written here once via "Continue".
 
 This design is only safe because of what a throwaway sandbox spike
 confirmed first (not assumed): st.session_state survives both
@@ -71,7 +71,7 @@ if available_groups:
 else:
     selected_group = None
 
-if st.button("Devam et", key="select_project_continue"):
+if st.button("Continue", key="select_project_continue"):
     st.session_state["shared_project_path"] = selected_path
     st.session_state["shared_model_group"] = selected_group
     st.switch_page("pages/model_explorer.py")
