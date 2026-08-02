@@ -1,70 +1,67 @@
 # dbt-feature-lineage
 
-**Open-source developer tool for exploring dbt Core projects, model dependencies, SQL structure, and lineage.**
+**Explore dbt Core projects, model dependencies, and column-level lineage — entirely locally.**
 
-**Status:** MVP · **Python:** 3.12 · **Runtime:** Docker · **License:** not yet defined
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+![Python](https://img.shields.io/badge/python-3.12%2B-blue)
+![Docker](https://img.shields.io/badge/runtime-Docker-2496ED?logo=docker&logoColor=white)
 
-## Overview
+## Why this exists
 
-Large dbt projects can contain many models, CTEs, joins, transformations, and feature columns. Understanding how a model is constructed often requires manually navigating SQL and YAML files. dbt-feature-lineage scans a local dbt project and provides a developer-focused interface for exploring model discovery, dbt dependencies, and SQL structure through a Typer CLI and a local Streamlit application.
+Large dbt projects accumulate dozens of models, hundreds of columns, and SQL transformations that are hard to hold in your head. Answering "where did this column come from?" or "what breaks if I change this?" usually means manually grepping SQL and YAML across the repo. dbt-feature-lineage scans a local dbt project — no warehouse connection, no SaaS account — and gives you a Typer CLI and a Streamlit UI to explore model structure, trace a column's lineage, and see what a change would affect.
 
-## Current features
+## Features
+
+**Project analysis & CLI**
 
 - Local dbt project path analysis and `dbt_project.yml` validation
 - Recursive SQL model discovery with staging, intermediate, marts, and unknown layer detection
 - YAML source discovery and source-table parsing
-- `ref()` and `source()` dependency extraction
-- Human-readable project summaries and JSON CLI output
-- Individual model inspection with graceful parser fallback
-- Manifest-aware project loading via `target/manifest.json` and `catalog.json`, preferred over static SQL parsing whenever available
-- `--generate-artifacts` CLI flag (and a matching "Generate artifacts" button in the Streamlit UI) to run `dbt parse` on demand, with a reported, non-silent fallback to static analysis if it can't
-- Model inspection uses dbt's actual compiled SQL when a manifest is present, instead of re-parsing the raw Jinja source
-- Jinja preprocessing for `ref()` and `source()` calls
-- CTE, table alias, join, filter, aggregate, and window-function analysis
-- Output-column extraction and transformation-type classification
-- Streamlit model explorer with model search and layer filtering
-- Overview, Query Flow, Columns, and Raw SQL tabs
-- Cross-model column-level lineage: traces a column back through joins, coalesces, and renames to its raw source(s) — or forward to its downstream consumers — via a project-wide `networkx` graph
-- `lineage` CLI command and a dedicated "Column Lineage" Streamlit page for searching a column by name and viewing its upstream/downstream chain as an interactive graph
-- Model DAG: a project-wide model-level dependency graph (materialization, column count per node; owner/tests/description/tags on click) — both this and Column Lineage render via the same `streamlit-flow-component` (React Flow) interactive graph, with zoom/pan/minimap
-- Shared "Select Project" page: scans a root directory for dbt projects and lets you pick one project and (optionally) one model group once — Model Explorer, Model DAG, and Column Lineage all read that same shared selection instead of asking for a project path or group individually
-- Query Flow Visualization: Model Explorer's Query Flow tab renders a single model's own source → CTE → final select → output steps as the same interactive `streamlit-flow-component` graph used by Model DAG/Column Lineage, with each CTE's own joins/filters/aggregations shown as node badges and a click-to-inspect detail panel
-- Feature Explorer: searches a column name across the whole project and lists every model that produces it side by side, comparing each one's own description, owner, tags, and test count — no lineage tracing involved
-- Downstream Impact Analysis: a model-grouped summary of a column's downstream lineage chain — "N models, M columns affected", split into directly-affected (immediate consumers) and the full transitive chain — surfaced via `--impact` on the `lineage` CLI command and a panel on the Column Lineage page, both built on the chain that's already computed
+- `ref()`/`source()` dependency extraction, with Jinja preprocessing
+- Manifest-aware project loading via `target/manifest.json`/`catalog.json`, preferred over static SQL parsing whenever available, with a `--generate-artifacts` flag to run `dbt parse` on demand
+- CTE, table alias, join, filter, aggregate, and window-function analysis; output-column extraction and transformation-type classification
+- Human-readable and JSON output for every CLI command
 
-## Demo project
+**Column-level lineage**
 
-The repository includes [`examples/sample_banking_dbt`](examples/sample_banking_dbt), a realistic banking analytics and Feature Store pipeline with staging, intermediate, marts, and feature store export layers. Its main complex model is `mart_customer_features`.
+- Cross-model column lineage: traces a column back through joins, coalesces, and renames to its raw source(s), or forward to its downstream consumers, via a project-wide `networkx` graph
+- Downstream Impact Analysis: a model-grouped summary of a column's downstream chain — how many models/columns are affected, split into directly-affected and the full transitive chain
+- Query Flow Visualization: a single model's own source → CTE → final select → output steps as an interactive diagram
 
-The project ships with a `profiles.yml` using entirely placeholder postgres credentials, so `dbt parse` can run end-to-end without a live warehouse connection — this lets you exercise manifest mode (see `--generate-artifacts` below) against the demo project directly.
+**Interactive Streamlit interface**
 
-```text
-Raw banking sources
-        ↓
-Staging models
-        ↓
-Intermediate customer metrics
-        ↓
-mart_customer_features
-        ↓
-mart_feature_store_export
+- Five pages sharing one project/model-group selection: Select Project, Model Explorer, Model DAG, Column Lineage, Feature Explorer
+- Model-level and column-level dependency graphs rendered via `streamlit-flow-component` (zoom/pan/minimap/click-to-inspect)
+- Feature Explorer: compare every model that produces a given column name side by side (description, owner, tags, test count)
+
+## Quick start with Docker
+
+```bash
+git clone https://github.com/negativexq/dbt-feature-lineage.git
+cd dbt-feature-lineage
+make build
+make test
+make app
 ```
+
+Open the application at [http://localhost:8501](http://localhost:8501). The repository is mounted into `/app`, with `PYTHONPATH=/app/src`; Streamlit polling is enabled for Docker development. The demo project uses static analysis and does not require a live warehouse connection.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    A[Local dbt project] --> B[Project loader]
-    B --> C[Model scanner]
-    B --> D[YAML parser]
-    C --> E[Dependency parser]
-    C --> F[SQL parser]
-    E --> G[Analysis service]
-    F --> G
-    D --> G
-    G --> H[Typer CLI]
-    G --> I[Streamlit UI]
+    A[Local dbt project] --> B[loaders]
+    B --> C[scanners]
+    B --> D[parsers]
+    C --> E[domain models]
+    D --> E
+    E --> F[services]
+    F --> G[Typer CLI]
+    F --> H[ui helpers]
+    H --> I[Streamlit pages]
 ```
+
+`loaders` resolve a project path into either manifest-mode (`target/manifest.json`/`catalog.json`) or static mode (direct SQL/YAML scanning via `scanners`/`parsers`); both normalize into the same `domain` models regardless of source. `services` build on top of those models — schema/lineage graphs, model-DAG construction, column search, query-flow steps, impact summaries — and both the CLI and the Streamlit pages (via thin `ui` helpers) consume the same service layer, so the two interfaces never duplicate logic.
 
 ## Project structure
 
@@ -78,7 +75,7 @@ dbt-feature-lineage/
 │   ├── loaders/              # incl. project_discovery.py (dbt project root scan)
 │   ├── parsers/
 │   ├── scanners/
-│   ├── services/             # incl. lineage_service.py, model_dag_service.py
+│   ├── services/             # incl. lineage_service.py, model_dag_service.py, column_search.py
 │   └── ui/                   # incl. flow_rendering.py (streamlit-flow-component)
 ├── tests/
 ├── examples/sample_banking_dbt/
@@ -88,18 +85,6 @@ dbt-feature-lineage/
 ├── pyproject.toml
 └── README.md
 ```
-
-## Quick start with Docker
-
-```bash
-git clone https://github.com/negativexq/dbt-feature-lineage.git
-cd dbt-feature-lineage
-make build
-make test
-make app
-```
-
-Open the application at [http://localhost:8501](http://localhost:8501). The repository is mounted into `/app`, with `PYTHONPATH=/app/src`; Streamlit polling is enabled for Docker development. The demo project uses static analysis and does not require a live warehouse connection.
 
 ## Makefile commands
 
@@ -143,24 +128,17 @@ docker compose run --rm app dbt-feature-lineage lineage examples/sample_banking_
 
 ## Web interface
 
-The Streamlit application has five pages, selectable from the sidebar navigation, with **Select Project** as the default landing page.
+The Streamlit application has five pages, selectable from the sidebar navigation, with **Select Project** as the default landing page. All five share one project/model-group selection, set once and read everywhere else.
 
-**Select Project** — enter a root directory (defaults to `examples`) to recursively scan for dbt projects (any directory containing a `dbt_project.yml`), pick one from the discovered list, and optionally narrow it down to a single model group (domain). This selection is written once to shared session state; the other four pages read it rather than asking for a project path (or, for Model DAG, Column Lineage, and Feature Explorer, a group filter) individually. Each page shows the currently active project/group in its header with a "Change" link back to Select Project, and prompts you to pick a project first if none has been selected yet.
+**Select Project** — scans a root directory (defaults to `examples`) for dbt projects, lets you pick one and, optionally, a single model group to scope every other page to.
 
-**Model Explorer** — select a single model and dig into it via four tabs:
+**Model Explorer** — select a single model and dig into it via four tabs: Overview, Query Flow (an interactive source → CTE → final select → output diagram, click a step for its own join/filter/aggregation details), Columns, and Raw SQL.
 
-- **Overview:** model path, layer, upstream models, source dependencies, and summary counts
-- **Query Flow:** an interactive diagram of the model's own source → CTE → final select → output steps (same `streamlit-flow-component` graph as Model DAG/Column Lineage); each step's own joins/filters/aggregations show as node badges, and clicking a step opens a detail panel with its upstream links and output columns
-- **Columns:** output expressions, transformation types, referenced input columns, and selected-column details
-- **Raw SQL:** original SQL and the preprocessed SQL sent to sqlglot
+**Model DAG** — the whole project's (or selected group's) model-level dependency graph, rendered interactively; click a node for materialization, owner, tests, description, and tags.
 
-**Model DAG** — independent of Model Explorer's model selection; the whole project's (or, if a model group was picked on Select Project, that group's) model-level `ref()`/`source()` dependency graph, rendered interactively (zoom/pan/minimap) via `streamlit-flow-component`. Each node shows materialization and column count; clicking a node opens a detail panel with owner, test count, description, and tags (fields left blank when the manifest — or static mode — doesn't have them).
+**Column Lineage** — search a column by name and view its upstream or downstream chain as an interactive graph; for the downstream direction, a **Downstream impact** panel below the graph groups the same chain by model.
 
-**Column Lineage** — independent of Model Explorer's model selection; searches the project (or the selected model group) by column name and renders the matching column's upstream or downstream chain as the same interactive graph component Model DAG uses, for a consistent visual language between the two. When a model group is selected on Select Project, the lineage trace itself is scoped to that group, not just the search results. For the downstream direction, a **Downstream impact** panel below the graph groups the same chain by model — affected model/column counts, directly-affected models, and the full transitive list — built from the chain the graph already renders, no extra computation.
-
-**Feature Explorer** — independent of Model Explorer's model selection and of lineage tracing; searches the project (or the selected model group) by column name and, once you pick a specific column from the matches (exact name match sorted first), lists every model producing it side by side — layer, description, owner, tags, and test count — as a plain table rather than a graph, since the models sharing a column name aren't connected to each other by that fact. Static-mode projects show a warning that description/owner/tags/tests will be empty until a manifest is generated.
-
-<!-- Add screenshot: docs/images/model-overview.png -->
+**Feature Explorer** — search a column name and compare every model that produces it side by side (layer, description, owner, tags, test count), independent of lineage tracing.
 
 ## Parsing strategy
 
@@ -180,7 +158,20 @@ The MVP does not execute arbitrary dbt macros.
 - Static analysis can differ from fully compiled dbt SQL; this only applies when no `target/manifest.json` is available, since manifest mode uses dbt's own compiled SQL.
 - The demo project requires no live warehouse connection, but analyzing projects that depend on generated or unavailable files may be incomplete.
 
+## How it compares
+
+An honest, non-exhaustive comparison — these tools solve overlapping but distinct problems:
+
+| Tool | Scope | Where it runs | How this project differs |
+| --- | --- | --- | --- |
+| **dbt docs** | Model-level DAG, generated by `dbt docs generate` | Static HTML, no server | No column-level lineage or impact analysis; this tool traces individual columns and summarizes what a change downstream affects |
+| **Elementary** | Data observability, test/anomaly monitoring | Self-hosted or hosted, ships as a dbt package | Different focus (monitoring over time, not interactive exploration); no column-lineage UI |
+| **SQLMesh** | Full transformation framework, a dbt alternative | Replaces dbt itself | Not a companion tool to dbt — this project is additive and works alongside an existing dbt project unchanged |
+| **Datafold** | Data diffing, CI impact analysis, lineage | Hosted SaaS (paid), integrates with CI | Paid and cloud-based; this tool is free, fully local, single Docker command, no warehouse connection required |
+
 ## Roadmap
+
+v0.1 through v0.8 are complete — see [`docs/`](docs/) for the plan document behind each release.
 
 - [x] Manifest-first analysis
 - [x] Compiled SQL support
@@ -208,3 +199,7 @@ The project uses Python 3.12, Typer, Rich, Pydantic, PyYAML, sqlglot, Streamlit,
 ## Contributing
 
 Open an issue or pull request with a focused change, tests for behavior changes, and documentation updates where applicable. Keep the local static-analysis scope intact and avoid committing generated artifacts or credentials.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
