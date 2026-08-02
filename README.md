@@ -132,13 +132,24 @@ The Streamlit application has five pages, selectable from the sidebar navigation
 
 **Select Project** — scans a root directory (defaults to `examples`) for dbt projects, lets you pick one and, optionally, a single model group to scope every other page to.
 
+![Select Project page](docs/photos/select-project.png)
+
 **Model Explorer** — select a single model and dig into it via four tabs: Overview, Query Flow (an interactive source → CTE → final select → output diagram, click a step for its own join/filter/aggregation details), Columns, and Raw SQL.
+
+![Model Explorer page, Query Flow tab](docs/photos/model-explorer.png)
 
 **Model DAG** — the whole project's (or selected group's) model-level dependency graph, rendered interactively; click a node for materialization, owner, tests, description, and tags.
 
+![Model DAG page](docs/photos/model-dag.png)
+
 **Column Lineage** — search a column by name and view its upstream or downstream chain as an interactive graph; for the downstream direction, a **Downstream impact** panel below the graph groups the same chain by model.
 
+![Column Lineage page, downstream chain](docs/photos/column-lineage.png)
+![Column Lineage page, downstream impact panel](docs/photos/downstream-impact.png)
+
 **Feature Explorer** — search a column name and compare every model that produces it side by side (layer, description, owner, tags, test count), independent of lineage tracing.
+
+![Feature Explorer page](docs/photos/feature-explorer.png)
 
 ## Parsing strategy
 
