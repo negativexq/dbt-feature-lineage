@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-import networkx as nx
-
 from dbt_feature_lineage.domain.models import (
     ArtifactStatus,
     DbtModel,
@@ -109,46 +107,6 @@ def describe_artifact_status(status: ArtifactStatus) -> tuple[str, str]:
     if status.message:
         message = f"{message} {status.message}"
     return level, message
-
-
-def build_lineage_dot(subgraph: nx.DiGraph) -> str:
-    """Render a column-lineage subgraph as a DOT string for st.graphviz_chart.
-
-    st.graphviz_chart accepts a raw DOT string directly, so this avoids
-    adding the `graphviz` package (not an existing dependency) or a
-    pydot/pygraphviz-based networkx export just to draw a handful of
-    nodes -- confirmed in docs/v0.4-plan.md Bölüm 5.
-
-    Node/edge styling (font size, padding, spacing) is set generously on
-    purpose: graphviz's default layout is dense enough to look cramped
-    even at moderate node counts, and the caller is expected to render
-    this with st.graphviz_chart(..., width="stretch") rather than
-    graphviz's own `size` attribute (which would scale the whole graph
-    *down* to fit a fixed box -- the opposite of what's wanted here).
-    """
-
-    lines = [
-        "digraph lineage {",
-        "    rankdir=LR;",
-        "    graph [nodesep=0.5, ranksep=0.75];",
-        '    node [shape=box, style="rounded,filled", fillcolor="#eef2f7", '
-        'fontsize=14, fontname="Helvetica", margin="0.2,0.15"];',
-        '    edge [fontsize=11, fontname="Helvetica"];',
-    ]
-    for node in subgraph.nodes:
-        node_id = _dot_escape(f"{node.model}.{node.column}")
-        lines.append(f'    "{node_id}" [label="{node_id}"];')
-    for source, target, data in subgraph.edges(data=True):
-        source_id = _dot_escape(f"{source.model}.{source.column}")
-        target_id = _dot_escape(f"{target.model}.{target.column}")
-        edge_label = _dot_escape(str(data.get("transformation_type", "")))
-        lines.append(f'    "{source_id}" -> "{target_id}" [label="{edge_label}"];')
-    lines.append("}")
-    return "\n".join(lines)
-
-
-def _dot_escape(value: str) -> str:
-    return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
 def render_node_detail_panel(project: DbtProject, model_name: str) -> dict[str, str]:

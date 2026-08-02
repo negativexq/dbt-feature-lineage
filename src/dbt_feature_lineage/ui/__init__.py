@@ -1,7 +1,6 @@
 """UI helpers for the Streamlit app."""
 
 from .rendering import (
-    build_lineage_dot,
     build_model_flow_lines,
     describe_artifact_status,
     filter_models,
@@ -12,7 +11,6 @@ from .rendering import (
 )
 
 __all__ = [
-    "build_lineage_dot",
     "build_model_flow_lines",
     "describe_artifact_status",
     "filter_models",

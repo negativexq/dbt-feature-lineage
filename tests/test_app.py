@@ -46,7 +46,7 @@ def _run_model_dag_page(project_dir: Path | None = None) -> AppTest:
     return at
 
 
-def _model_dag_component_payload(at: AppTest) -> dict[str, Any]:
+def _component_payload(at: AppTest) -> dict[str, Any]:
     # AppTest can't simulate interaction with a custom component (no real
     # JS runtime executes, so the component's returned value never
     # changes -- verified via sandbox spike, docs/v0.5-plan.md Bölüm 8) --
@@ -288,6 +288,13 @@ def test_lineage_page_selecting_a_match_renders_chain_without_error(tmp_path: Pa
     # A column with real upstream ancestors should not show the
     # "no upstream lineage" fallback message.
     assert not any("No upstream lineage" in info.value for info in at.info)
+    payload = _component_payload(at)
+    assert {node["id"] for node in payload["nodes"]} == {
+        "raw_banking.customers.customer_id",
+        "int_customer_activity.customer_id",
+        "mart_customer_overview.customer_id",
+    }
+    assert len(payload["edges"]) == 2
 
 
 def test_lineage_page_terminal_column_shows_no_upstream_message(tmp_path: Path) -> None:
@@ -305,11 +312,36 @@ def test_lineage_page_terminal_column_shows_no_upstream_message(tmp_path: Path) 
     assert any("No upstream lineage" in info.value for info in at.info)
 
 
+def test_lineage_page_downstream_direction_sends_the_reversed_chain(tmp_path: Path) -> None:
+    project_dir = _write_manifest_project(tmp_path, "manifest_lineage_chain.json")
+    at = _run_lineage_page(project_dir)
+    at.text_input(key="lineage_search").set_value("customer_id").run()
+    at.radio(key="lineage_direction").set_value("Downstream (to consumers)").run()
+
+    match_box = at.selectbox(key="lineage_match")
+    raw_source_option = next(
+        option for option in match_box.options if "raw_banking.customers" in option
+    )
+    match_box.set_value(raw_source_option).run()
+
+    assert not at.exception
+    assert not any("No downstream lineage" in info.value for info in at.info)
+    payload = _component_payload(at)
+    assert {node["id"] for node in payload["nodes"]} == {
+        "raw_banking.customers.customer_id",
+        "stg_customers.customer_id",
+        "int_customer_activity.customer_id",
+        "mart_customer_overview.customer_id",
+    }
+
+
 def test_lineage_page_branching_chain_renders_without_error(tmp_path: Path) -> None:
     # mart_customer_merged.customer_id = coalesce(a.customer_id, b.customer_id)
-    # -- a genuine multi-parent DAG; this just needs to render without
-    # raising (build_lineage_dot()'s own correctness is unit-tested in
-    # test_ui_rendering.py, AppTest can't introspect graphviz_chart content).
+    # -- a genuine multi-parent DAG; build_column_lineage_flow_elements()'s
+    # own correctness is unit-tested in test_flow_rendering.py, this just
+    # confirms the page wires it up and sends both upstream sources to
+    # the component (AppTest can't introspect the component's own
+    # rendering, only what was sent to it).
     project_dir = _write_manifest_project(tmp_path, "manifest_lineage_branching.json")
     at = _run_lineage_page(project_dir)
     at.text_input(key="lineage_search").set_value("customer_id").run()
@@ -321,6 +353,11 @@ def test_lineage_page_branching_chain_renders_without_error(tmp_path: Path) -> N
     match_box.set_value(merged_option).run()
 
     assert not at.exception
+    payload = _component_payload(at)
+    node_ids = {node["id"] for node in payload["nodes"]}
+    assert "raw_banking.customers.customer_id" in node_ids
+    assert "raw_banking.legacy_customers.customer_id" in node_ids
+    assert len(payload["edges"]) == 2
 
 
 def test_lineage_page_shows_lineage_warnings(tmp_path: Path) -> None:
@@ -381,7 +418,7 @@ def test_model_dag_page_sends_one_node_per_model(tmp_path: Path) -> None:
 
     at = _run_model_dag_page(project_dir)
 
-    payload = _model_dag_component_payload(at)
+    payload = _component_payload(at)
     assert {node["id"] for node in payload["nodes"]} == {
         "stg_customers",
         "int_customer_activity",
@@ -394,7 +431,7 @@ def test_model_dag_page_sends_edges_matching_ref_dependencies(tmp_path: Path) ->
 
     at = _run_model_dag_page(project_dir)
 
-    payload = _model_dag_component_payload(at)
+    payload = _component_payload(at)
     edge_pairs = {(edge["source"], edge["target"]) for edge in payload["edges"]}
     assert edge_pairs == {
         ("stg_customers", "int_customer_activity"),
@@ -409,7 +446,7 @@ def test_model_dag_page_node_content_includes_materialization_and_column_count(
 
     at = _run_model_dag_page(project_dir)
 
-    payload = _model_dag_component_payload(at)
+    payload = _component_payload(at)
     mart_node = next(n for n in payload["nodes"] if n["id"] == "mart_customer_overview")
     content = mart_node["data"]["content"]
     assert "mart_customer_overview" in content
@@ -421,7 +458,7 @@ def test_model_dag_page_is_independent_of_model_explorer_selection(tmp_path: Pat
 
     at = _run_model_dag_page(project_dir)
 
-    payload = _model_dag_component_payload(at)
+    payload = _component_payload(at)
     assert len(payload["nodes"]) == 3
 
 
@@ -451,7 +488,7 @@ def test_model_dag_page_shows_circular_dependency_warning(tmp_path: Path) -> Non
     at = _run_model_dag_page(project_dir)
 
     assert any("circular ref" in warning.value.lower() for warning in at.warning)
-    payload = _model_dag_component_payload(at)
+    payload = _component_payload(at)
     # Only stg_customers is left standing -- the two cyclic models are
     # excluded entirely (model_dag_service.build_model_dag()'s
     # warn-and-exclude contract, not a raise).
