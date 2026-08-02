@@ -25,9 +25,11 @@ import networkx as nx
 import pytest
 
 from dbt_feature_lineage.domain.lineage import ColumnNode
-from dbt_feature_lineage.domain.models import DbtProject
+from dbt_feature_lineage.domain.models import DbtModel, DbtProject
 from dbt_feature_lineage.loaders.manifest_loader import load_dbt_project_from_manifest
+from dbt_feature_lineage.loaders.project_loader import load_dbt_project
 from dbt_feature_lineage.services.column_search import (
+    build_feature_index,
     build_search_index,
     get_downstream_chain,
     get_upstream_chain,
@@ -321,3 +323,162 @@ def test_get_downstream_chain_from_an_ancestor_reaches_back_to_the_original_targ
 
     for ancestor in upstream:
         assert leaf in get_downstream_chain(chain_graph, ancestor)
+
+
+# ---------------------------------------------------------------------------
+# build_feature_index() -- v0.7's Feature Explorer data source. Built on
+# build_project_schema().columns_by_model, NOT build_search_index()'s
+# lineage graph (docs/v0.7-plan.md Bölüm 1: measured ~300x cheaper, and
+# Feature Explorer never needs a lineage edge, only "which model produces
+# this column name and what's that model's own metadata").
+# ---------------------------------------------------------------------------
+
+
+def _model(
+    name: str,
+    raw_sql: str,
+    layer: str = "marts",
+    **kwargs: object,
+) -> DbtModel:
+    return DbtModel(
+        name=name,
+        file_path=f"/tmp/{name}.sql",
+        relative_path=f"models/{name}.sql",
+        layer=layer,
+        raw_sql=raw_sql,
+        **kwargs,
+    )
+
+
+def _project(models: list[DbtModel], source: str = "manifest") -> DbtProject:
+    return DbtProject(
+        name="proj",
+        project_path="/tmp/proj",
+        dbt_project_file="/tmp/proj/dbt_project.yml",
+        model_paths=["models"],
+        models=models,
+        source=source,
+    )
+
+
+def test_build_feature_index_zero_matches_for_an_unknown_column() -> None:
+    project = _project([_model("mart_a", "select customer_id from stg_a")])
+
+    index = build_feature_index(project)
+
+    assert index.get("does_not_exist_anywhere", []) == []
+
+
+def test_build_feature_index_single_match_carries_that_models_own_metadata() -> None:
+    project = _project(
+        [
+            _model(
+                "mart_with_metadata",
+                "select customer_id from stg_customers",
+                description="Customer-level feature mart.",
+                tags=["finance", "daily"],
+                owner="finance-team",
+                test_count=2,
+            )
+        ]
+    )
+
+    matches = build_feature_index(project)["customer_id"]
+
+    assert len(matches) == 1
+    match = matches[0]
+    assert match.model == "mart_with_metadata"
+    assert match.column == "customer_id"
+    assert match.layer == "marts"
+    assert match.description == "Customer-level feature mart."
+    assert match.tags == ["finance", "daily"]
+    assert match.owner == "finance-team"
+    assert match.test_count == 2
+
+
+def test_build_feature_index_multiple_matches_each_keep_their_own_models_metadata() -> None:
+    # The same column name produced by two different models with
+    # different (or absent) metadata -- the whole point of Feature
+    # Explorer's comparison view (docs/v0.7-plan.md Hedef).
+    project = _project(
+        [
+            _model(
+                "mart_with_metadata",
+                "select customer_id from stg_customers",
+                layer="marts",
+                description="Documented mart.",
+                owner="finance-team",
+            ),
+            _model(
+                "stg_customers",
+                "select customer_id from raw.customers",
+                layer="staging",
+            ),
+        ]
+    )
+
+    matches = build_feature_index(project)["customer_id"]
+
+    assert len(matches) == 2
+    by_model = {m.model: m for m in matches}
+    assert by_model["mart_with_metadata"].description == "Documented mart."
+    assert by_model["mart_with_metadata"].owner == "finance-team"
+    assert by_model["stg_customers"].description is None
+    assert by_model["stg_customers"].owner is None
+
+
+def test_build_feature_index_sorts_matches_by_model_name() -> None:
+    project = _project(
+        [
+            _model("mart_zeta", "select customer_id from stg_a"),
+            _model("mart_alpha", "select customer_id from stg_b"),
+        ]
+    )
+
+    matches = build_feature_index(project)["customer_id"]
+
+    assert [m.model for m in matches] == ["mart_alpha", "mart_zeta"]
+
+
+def test_build_feature_index_static_mode_metadata_is_empty_not_missing() -> None:
+    # Static mode never populates description/tags/owner/test_count (no
+    # manifest to read them from, same as render_node_detail_panel's
+    # "static mode" contract) -- the FeatureMatch must still exist, with
+    # those fields at their defaults, not omitted or raising.
+    project = _project(
+        [_model("mart_a", "select customer_id from stg_a")], source="static"
+    )
+
+    match = build_feature_index(project)["customer_id"][0]
+
+    assert match.description is None
+    assert match.tags == []
+    assert match.owner is None
+    assert match.test_count == 0
+
+
+def test_build_feature_index_on_sample_banking_dbt_customer_id_appears_in_every_model(
+    sample_project_path: Path,
+) -> None:
+    # Real fixture, measured during planning (docs/v0.7-plan.md Bölüm 1):
+    # all 12 models in this project produce customer_id.
+    project = load_dbt_project(sample_project_path)
+
+    matches = build_feature_index(project)["customer_id"]
+
+    assert len(matches) == 12
+    assert {m.model for m in matches} == {model.name for model in project.models}
+    # This fixture ships with no manifest -- static mode, so every match's
+    # metadata is empty, not fabricated.
+    assert all(m.description is None and m.owner is None for m in matches)
+
+
+def test_build_feature_index_on_sample_banking_dbt_unique_column_has_one_match(
+    sample_project_path: Path,
+) -> None:
+    project = load_dbt_project(sample_project_path)
+
+    matches = build_feature_index(project)["lifetime_transaction_count"]
+
+    assert len(matches) == 1
+    assert matches[0].model == "int_customer_activity"

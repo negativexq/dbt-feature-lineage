@@ -9,9 +9,13 @@ docs/v0.4-plan.md Bölüm 2).
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 import networkx as nx
 
 from dbt_feature_lineage.domain.lineage import ColumnNode
+from dbt_feature_lineage.domain.models import DbtProject, Layer
+from dbt_feature_lineage.services.schema_builder import build_project_schema
 
 
 def build_search_index(graph: nx.DiGraph) -> dict[str, list[ColumnNode]]:
@@ -64,3 +68,66 @@ def get_downstream_chain(graph: nx.DiGraph, target: ColumnNode) -> list[ColumnNo
     descendants = nx.descendants(graph, target)
     subgraph = graph.subgraph({target, *descendants})
     return list(nx.topological_sort(subgraph))
+
+
+@dataclass
+class FeatureMatch:
+    """One model's own metadata for a column name it produces -- Feature
+    Explorer's (v0.7) row shape, not a lineage graph node. Deliberately
+    not ColumnNode: ColumnNode's job is graph-node identity/hashability
+    (frozen, used as an nx.DiGraph key); FeatureMatch never goes in a
+    graph, it's a plain comparison-view row, so it carries the extra
+    description/owner/tags/test_count fields ColumnNode has no reason to.
+    """
+
+    model: str
+    column: str
+    layer: Layer
+    description: str | None = None
+    owner: str | None = None
+    tags: list[str] = field(default_factory=list)
+    test_count: int = 0
+
+
+def build_feature_index(project: DbtProject) -> dict[str, list[FeatureMatch]]:
+    """Group every model's own output columns by column name, each
+    carrying that model's own description/owner/tags/test_count.
+
+    Built on build_project_schema().columns_by_model, NOT on a lineage
+    graph (build_search_index()'s input) -- Feature Explorer never
+    traces an edge, only "which models produce this column name and
+    what's each one's own metadata", and columns_by_model is ~300x
+    cheaper to obtain than a full build_project_lineage() lineage graph
+    (measured on real fixtures, docs/v0.7-plan.md Bölüm 1). Static-mode
+    projects simply get FeatureMatch rows with every metadata field at
+    its default (None/[]/0) -- never omitted or fabricated.
+    """
+
+    project_schema = build_project_schema(project)
+    models_by_name = {model.name: model for model in project.models}
+
+    index: dict[str, list[FeatureMatch]] = {}
+    for model_name, column_names in project_schema.columns_by_model.items():
+        model = models_by_name.get(model_name)
+        if model is None:
+            continue
+        # A model's own output column list isn't guaranteed duplicate-free
+        # (schema_builder doesn't dedupe it) -- one FeatureMatch per
+        # distinct name, not one per raw_sql occurrence.
+        for column_name in set(column_names):
+            index.setdefault(column_name, []).append(
+                FeatureMatch(
+                    model=model.name,
+                    column=column_name,
+                    layer=model.layer,
+                    description=model.description,
+                    owner=model.owner,
+                    tags=model.tags,
+                    test_count=model.test_count,
+                )
+            )
+
+    for matches in index.values():
+        matches.sort(key=lambda match: match.model)
+
+    return index
