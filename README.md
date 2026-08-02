@@ -30,6 +30,7 @@ Large dbt projects can contain many models, CTEs, joins, transformations, and fe
 - Shared "Select Project" page: scans a root directory for dbt projects and lets you pick one project and (optionally) one model group once — Model Explorer, Model DAG, and Column Lineage all read that same shared selection instead of asking for a project path or group individually
 - Query Flow Visualization: Model Explorer's Query Flow tab renders a single model's own source → CTE → final select → output steps as the same interactive `streamlit-flow-component` graph used by Model DAG/Column Lineage, with each CTE's own joins/filters/aggregations shown as node badges and a click-to-inspect detail panel
 - Feature Explorer: searches a column name across the whole project and lists every model that produces it side by side, comparing each one's own description, owner, tags, and test count — no lineage tracing involved
+- Downstream Impact Analysis: a model-grouped summary of a column's downstream lineage chain — "N models, M columns affected", split into directly-affected (immediate consumers) and the full transitive chain — surfaced via `--impact` on the `lineage` CLI command and a panel on the Column Lineage page, both built on the chain that's already computed
 
 ## Demo project
 
@@ -125,11 +126,12 @@ dbt-feature-lineage inspect examples/sample_banking_dbt mart_customer_features
 dbt-feature-lineage lineage examples/sample_banking_dbt customer_id
 dbt-feature-lineage lineage examples/sample_banking_dbt customer_id --model mart_customer_features
 dbt-feature-lineage lineage examples/sample_banking_dbt customer_id --json
+dbt-feature-lineage lineage examples/sample_banking_dbt customer_id --direction downstream --impact
 ```
 
 `--generate-artifacts` runs `dbt parse` to produce `target/manifest.json` if it doesn't exist yet, then loads from it; if `dbt` isn't installed, no profile is found, or parsing fails, it falls back to static analysis and reports why instead of failing silently. Without the flag, `analyze` prompts interactively only when a manifest is missing and the terminal is interactive; non-interactive runs (CI, pipes) skip straight to static analysis.
 
-`lineage` traces a column back to its raw source(s) across the whole project, building a project-wide lineage graph and printing the upstream chain. Use `--model` to disambiguate when more than one model produces a column with that name.
+`lineage` traces a column back to its raw source(s) across the whole project, building a project-wide lineage graph and printing the upstream chain. Use `--model` to disambiguate when more than one model produces a column with that name. `--impact` (only valid with `--direction downstream`) adds a model-grouped downstream impact summary below the chain — how many models/columns are affected, split into directly-affected and the full transitive chain.
 
 Equivalent one-shot Docker commands are:
 
@@ -154,7 +156,7 @@ The Streamlit application has five pages, selectable from the sidebar navigation
 
 **Model DAG** — independent of Model Explorer's model selection; the whole project's (or, if a model group was picked on Select Project, that group's) model-level `ref()`/`source()` dependency graph, rendered interactively (zoom/pan/minimap) via `streamlit-flow-component`. Each node shows materialization and column count; clicking a node opens a detail panel with owner, test count, description, and tags (fields left blank when the manifest — or static mode — doesn't have them).
 
-**Column Lineage** — independent of Model Explorer's model selection; searches the project (or the selected model group) by column name and renders the matching column's upstream or downstream chain as the same interactive graph component Model DAG uses, for a consistent visual language between the two. When a model group is selected on Select Project, the lineage trace itself is scoped to that group, not just the search results.
+**Column Lineage** — independent of Model Explorer's model selection; searches the project (or the selected model group) by column name and renders the matching column's upstream or downstream chain as the same interactive graph component Model DAG uses, for a consistent visual language between the two. When a model group is selected on Select Project, the lineage trace itself is scoped to that group, not just the search results. For the downstream direction, a **Downstream impact** panel below the graph groups the same chain by model — affected model/column counts, directly-affected models, and the full transitive list — built from the chain the graph already renders, no extra computation.
 
 **Feature Explorer** — independent of Model Explorer's model selection and of lineage tracing; searches the project (or the selected model group) by column name and, once you pick a specific column from the matches (exact name match sorted first), lists every model producing it side by side — layer, description, owner, tags, and test count — as a plain table rather than a graph, since the models sharing a column name aren't connected to each other by that fact. Static-mode projects show a warning that description/owner/tags/tests will be empty until a manifest is generated.
 
@@ -184,7 +186,7 @@ The MVP does not execute arbitrary dbt macros.
 - [x] Compiled SQL support
 - [x] Cross-model column lineage
 - [ ] Feature Store raw-source tracing
-- [ ] Impact analysis
+- [x] Downstream Impact Analysis
 - [x] Interactive lineage graph
 - [x] Query Flow Visualization
 - [x] Feature Explorer
