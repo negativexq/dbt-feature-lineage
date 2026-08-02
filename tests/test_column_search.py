@@ -33,6 +33,7 @@ from dbt_feature_lineage.services.column_search import (
     build_search_index,
     get_downstream_chain,
     get_upstream_chain,
+    summarize_downstream_impact,
 )
 from dbt_feature_lineage.services.lineage_service import build_project_lineage
 
@@ -482,3 +483,183 @@ def test_build_feature_index_on_sample_banking_dbt_unique_column_has_one_match(
 
     assert len(matches) == 1
     assert matches[0].model == "int_customer_activity"
+
+
+# ---------------------------------------------------------------------------
+# summarize_downstream_impact() -- v0.8's Downstream Impact Analysis. Built
+# directly on get_downstream_chain()'s existing output (chain + graph),
+# not a new lineage computation -- docs/v0.8-plan.md Bölüm 1/4.
+# ---------------------------------------------------------------------------
+
+
+def _impact_model(summary, model_name: str):
+    return next(m for m in summary.all_impacted if m.model == model_name)
+
+
+_EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
+
+
+@pytest.fixture(scope="module")
+def sample_banking_lineage_graph() -> nx.DiGraph:
+    # Module-scoped (can't depend on the function-scoped sample_project_path
+    # fixture, so this recomputes the same path conftest.py does): building
+    # this 12-model project's lineage graph is genuinely expensive (~12.8s,
+    # measured during v0.7/v0.8 planning) -- every test below shares this
+    # one build instead of paying that cost per test.
+    project = load_dbt_project(_EXAMPLES_DIR / "sample_banking_dbt")
+    return build_project_lineage(project)
+
+
+@pytest.fixture(scope="module")
+def multi_domain_lineage_graph() -> nx.DiGraph:
+    project = load_dbt_project(_EXAMPLES_DIR / "multi_domain_dbt")
+    return build_project_lineage(project)
+
+
+def test_summarize_downstream_impact_no_downstream_is_all_zero(
+    sample_banking_lineage_graph: nx.DiGraph,
+) -> None:
+    # A genuine leaf in this fixture's lineage graph (out_degree == 0,
+    # verified against the real graph) -- nothing consumes it.
+    target = ColumnNode(model="int_customer_activity", column="customer_id", layer="intermediate")
+    chain = get_downstream_chain(sample_banking_lineage_graph, target)
+
+    summary = summarize_downstream_impact(sample_banking_lineage_graph, target, chain)
+
+    assert summary.affected_model_count == 0
+    assert summary.affected_column_count == 0
+    assert summary.direct == []
+    assert summary.all_impacted == []
+
+
+def test_summarize_downstream_impact_excludes_the_target_itself(
+    sample_banking_lineage_graph: nx.DiGraph,
+) -> None:
+    target = ColumnNode(
+        model="core_banking__transactions", column="transaction_timestamp", layer="unknown"
+    )
+    chain = get_downstream_chain(sample_banking_lineage_graph, target)
+
+    summary = summarize_downstream_impact(sample_banking_lineage_graph, target, chain)
+
+    assert all(m.model != "core_banking__transactions" for m in summary.all_impacted)
+    # chain includes the target itself (get_downstream_chain's own
+    # contract) -- the summary's column count must not count it.
+    assert summary.affected_column_count == len(chain) - 1
+
+
+def test_summarize_downstream_impact_dedupes_a_model_appearing_many_times(
+    sample_banking_lineage_graph: nx.DiGraph,
+) -> None:
+    # Real fixture, measured during planning (docs/v0.8-plan.md Bölüm 1):
+    # mart_customer_features appears 19 times in this chain (19 of its
+    # own columns), but that's ONE model, not 19.
+    target = ColumnNode(
+        model="core_banking__transactions", column="transaction_timestamp", layer="unknown"
+    )
+    chain = get_downstream_chain(sample_banking_lineage_graph, target)
+
+    summary = summarize_downstream_impact(sample_banking_lineage_graph, target, chain)
+
+    assert summary.affected_model_count == 8
+    assert summary.affected_column_count == 66
+    mart_customer_features = _impact_model(summary, "mart_customer_features")
+    assert len(mart_customer_features.columns) == 19
+
+
+def test_summarize_downstream_impact_sorts_all_impacted_by_descending_column_count(
+    sample_banking_lineage_graph: nx.DiGraph,
+) -> None:
+    target = ColumnNode(
+        model="core_banking__transactions", column="transaction_timestamp", layer="unknown"
+    )
+    chain = get_downstream_chain(sample_banking_lineage_graph, target)
+
+    summary = summarize_downstream_impact(sample_banking_lineage_graph, target, chain)
+
+    assert [m.model for m in summary.all_impacted] == [
+        "mart_customer_features",
+        "mart_feature_store_export",
+        "int_customer_spend_metrics",
+        "int_customer_daily_balance",
+        "int_customer_activity",
+        "mart_customer_360",
+        "mart_risk_features",
+        "stg_transactions",
+    ]
+
+
+def test_summarize_downstream_impact_ties_are_broken_alphabetically(
+    sample_banking_lineage_graph: nx.DiGraph,
+) -> None:
+    # mart_customer_360 and mart_risk_features are BOTH at 4 columns in
+    # this chain -- descending-count sort alone doesn't define their
+    # relative order, so the tiebreaker must be deterministic.
+    target = ColumnNode(
+        model="core_banking__transactions", column="transaction_timestamp", layer="unknown"
+    )
+    chain = get_downstream_chain(sample_banking_lineage_graph, target)
+
+    summary = summarize_downstream_impact(sample_banking_lineage_graph, target, chain)
+
+    tied = [m.model for m in summary.all_impacted if len(m.columns) == 4]
+    assert tied == ["mart_customer_360", "mart_risk_features"]
+
+
+def test_summarize_downstream_impact_direct_can_span_multiple_models(
+    sample_banking_lineage_graph: nx.DiGraph,
+) -> None:
+    # stg_transactions.amount has 7 immediate successors across 3
+    # different models (docs/v0.8-plan.md Bölüm 1/2) -- real branching,
+    # not a straight line, and "direct" isn't limited to one model.
+    target = ColumnNode(model="stg_transactions", column="amount", layer="staging")
+    chain = get_downstream_chain(sample_banking_lineage_graph, target)
+
+    summary = summarize_downstream_impact(sample_banking_lineage_graph, target, chain)
+
+    assert {m.model for m in summary.direct} == {
+        "stg_transactions",
+        "int_customer_daily_balance",
+        "int_customer_spend_metrics",
+    }
+    direct_stg = next(m for m in summary.direct if m.model == "stg_transactions")
+    assert set(direct_stg.columns) == {
+        "credit_amount",
+        "debit_amount",
+        "incoming_transfer_amount",
+        "outgoing_transfer_amount",
+        "spend_amount",
+    }
+    assert summary.affected_model_count == 7
+    assert summary.affected_column_count == 53
+
+
+def test_summarize_downstream_impact_direct_is_a_subset_of_all_impacted(
+    sample_banking_lineage_graph: nx.DiGraph,
+) -> None:
+    target = ColumnNode(model="stg_transactions", column="amount", layer="staging")
+    chain = get_downstream_chain(sample_banking_lineage_graph, target)
+
+    summary = summarize_downstream_impact(sample_banking_lineage_graph, target, chain)
+
+    all_impacted_columns = {
+        (m.model, column) for m in summary.all_impacted for column in m.columns
+    }
+    direct_columns = {(m.model, column) for m in summary.direct for column in m.columns}
+    assert direct_columns <= all_impacted_columns
+
+
+def test_summarize_downstream_impact_on_multi_domain_dbt(
+    multi_domain_lineage_graph: nx.DiGraph,
+) -> None:
+    target = ColumnNode(
+        model="lending_raw__loan_applications", column="requested_amount", layer="unknown"
+    )
+    chain = get_downstream_chain(multi_domain_lineage_graph, target)
+
+    summary = summarize_downstream_impact(multi_domain_lineage_graph, target, chain)
+
+    assert summary.affected_model_count == 5
+    assert summary.affected_column_count == 7
+    assert summary.all_impacted[0].model == "mart_default_risk"
+    assert len(summary.all_impacted[0].columns) == 3

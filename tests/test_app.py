@@ -728,6 +728,77 @@ def test_lineage_page_is_independent_of_model_explorer_selection(tmp_path: Path)
 
 
 # ---------------------------------------------------------------------------
+# Downstream impact summary panel (v0.8) -- built on the same chain the
+# graph already renders, only shown for the downstream direction (an
+# "impact" isn't a meaningful concept for upstream, docs/v0.8-plan.md
+# Hedef/Bölüm 3).
+# ---------------------------------------------------------------------------
+
+
+def _select_downstream_raw_source(at: AppTest) -> AppTest:
+    at.text_input(key="lineage_search").set_value("customer_id").run()
+    at.radio(key="lineage_direction").set_value("Downstream (to consumers)").run()
+    match_box = at.selectbox(key="lineage_match")
+    raw_source_option = next(
+        option for option in match_box.options if "raw_banking.customers" in option
+    )
+    return match_box.set_value(raw_source_option).run()
+
+
+def test_lineage_page_downstream_shows_impact_summary(tmp_path: Path) -> None:
+    project_dir = _write_manifest_project(tmp_path, "manifest_lineage_chain.json")
+    at = _run_lineage_page(project_dir)
+
+    at = _select_downstream_raw_source(at)
+
+    assert not at.exception
+    assert any("Downstream impact" in subheader.value for subheader in at.subheader)
+    metrics = {metric.label: metric.value for metric in at.metric}
+    assert metrics["Affected models"] == "3"
+    assert metrics["Affected columns"] == "3"
+    rows = at.dataframe[0].value
+    assert set(rows["Model"]) == {
+        "stg_customers",
+        "int_customer_activity",
+        "mart_customer_overview",
+    }
+
+
+def test_lineage_page_upstream_direction_shows_no_impact_summary(tmp_path: Path) -> None:
+    project_dir = _write_manifest_project(tmp_path, "manifest_lineage_chain.json")
+    at = _run_lineage_page(project_dir)
+    at.text_input(key="lineage_search").set_value("customer_id").run()
+
+    match_box = at.selectbox(key="lineage_match")
+    mart_option = next(
+        option for option in match_box.options if "mart_customer_overview" in option
+    )
+    match_box.set_value(mart_option).run()
+
+    assert not at.exception
+    assert not any("Downstream impact" in subheader.value for subheader in at.subheader)
+
+
+def test_lineage_page_terminal_column_downstream_shows_no_impact(tmp_path: Path) -> None:
+    project_dir = _write_manifest_project(tmp_path, "manifest_lineage_chain.json")
+    at = _run_lineage_page(project_dir)
+    at.text_input(key="lineage_search").set_value("customer_id").run()
+    at.radio(key="lineage_direction").set_value("Downstream (to consumers)").run()
+
+    match_box = at.selectbox(key="lineage_match")
+    mart_option = next(
+        option for option in match_box.options if "mart_customer_overview" in option
+    )
+    match_box.set_value(mart_option).run()
+
+    assert not at.exception
+    # mart_customer_overview is a terminal node -- "No downstream lineage"
+    # (the existing message) fires first and the graph/panel never render.
+    assert any("No downstream lineage" in info.value for info in at.info)
+    assert not any("Downstream impact" in subheader.value for subheader in at.subheader)
+
+
+# ---------------------------------------------------------------------------
 # Column Lineage: shared model-group selection narrows the lineage graph
 # itself (not just search results -- see pages/column_lineage.py's module
 # docstring for why that's a deliberate v0.6 behavior change from v0.5).

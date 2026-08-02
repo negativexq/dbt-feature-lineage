@@ -131,3 +131,76 @@ def build_feature_index(project: DbtProject) -> dict[str, list[FeatureMatch]]:
         matches.sort(key=lambda match: match.model)
 
     return index
+
+
+@dataclass
+class ModelImpact:
+    """One model's share of a downstream impact summary: which of its
+    own columns are (directly or transitively) fed by the traced target."""
+
+    model: str
+    columns: list[str] = field(default_factory=list)
+
+
+@dataclass
+class DownstreamImpactSummary:
+    """Model-grouped view of a get_downstream_chain() result (v0.8).
+
+    `direct` and `all_impacted` are not two disjoint sets -- `direct`
+    (target's immediate successors, grouped by model) is always a
+    subset of `all_impacted` (the whole chain minus the target itself,
+    grouped by model); `direct` exists to call out "this will break
+    immediately" separately from "this is transitively affected"
+    (docs/v0.8-plan.md Bölüm 2). Both lists are sorted by descending
+    column count (ties broken alphabetically by model name) -- the
+    model with the most affected columns is the one most worth a
+    reviewer's attention first.
+    """
+
+    affected_model_count: int
+    affected_column_count: int
+    direct: list[ModelImpact]
+    all_impacted: list[ModelImpact]
+
+
+def _group_by_model(nodes: list[ColumnNode]) -> list[ModelImpact]:
+    grouped: dict[str, list[str]] = {}
+    for node in nodes:
+        grouped.setdefault(node.model, []).append(node.column)
+
+    impacts = [ModelImpact(model=model, columns=columns) for model, columns in grouped.items()]
+    impacts.sort(key=lambda impact: (-len(impact.columns), impact.model))
+    return impacts
+
+
+def summarize_downstream_impact(
+    graph: nx.DiGraph, target: ColumnNode, chain: list[ColumnNode]
+) -> DownstreamImpactSummary:
+    """Group a get_downstream_chain(graph, target) result by model.
+
+    Takes `chain` as an argument rather than recomputing it -- the
+    caller (CLI/Column Lineage page) already has it from calling
+    get_downstream_chain() for its own rendering, and re-deriving the
+    same nx.descendants() traversal here would be pure waste (this
+    function's own cost is negligible by comparison -- measured
+    ~0.05ms even on the widest real fixture chain, docs/v0.8-plan.md
+    Bölüm 4).
+
+    `chain` always includes `target` itself (get_downstream_chain's own
+    contract) -- excluded here since a column isn't its own downstream
+    impact. Model names are deduplicated: the same model showing up
+    under many different columns in the chain (a mart with a dozen
+    columns all tracing back to one raw source, say) counts as ONE
+    affected model, not one per column -- see FeatureMatch/build_feature_index's
+    similar per-model grouping in this same module for the same reasoning.
+    """
+
+    downstream_nodes = [node for node in chain if node != target]
+    direct_nodes = list(graph.successors(target))
+
+    return DownstreamImpactSummary(
+        affected_model_count=len({node.model for node in downstream_nodes}),
+        affected_column_count=len(downstream_nodes),
+        direct=_group_by_model(direct_nodes),
+        all_impacted=_group_by_model(downstream_nodes),
+    )

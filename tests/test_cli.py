@@ -534,3 +534,166 @@ def test_lineage_direction_invalid_value_exits_nonzero(tmp_path: Path) -> None:
     )
 
     assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
+# --impact (v0.8 Downstream Impact Analysis) -- only valid with
+# --direction downstream, adds an "impact_summary" JSON field / a new
+# section below the existing human-readable chain output. Without the
+# flag, output must be byte-for-byte the same as before (see the
+# existing test_lineage_direction_downstream_* tests above, still
+# passing unchanged -- that's the regression guard).
+# ---------------------------------------------------------------------------
+
+
+def test_lineage_impact_with_upstream_direction_exits_nonzero(tmp_path: Path) -> None:
+    project_dir = _write_manifest_project(tmp_path, "manifest_lineage_chain.json")
+
+    result = runner.invoke(
+        app,
+        [
+            "lineage",
+            str(project_dir),
+            "customer_id",
+            "--model",
+            "mart_customer_overview",
+            "--direction",
+            "upstream",
+            "--impact",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "--impact" in result.stdout
+    assert "downstream" in result.stdout.lower()
+
+
+def test_lineage_impact_json_adds_impact_summary_without_changing_existing_fields(
+    tmp_path: Path,
+) -> None:
+    project_dir = _write_manifest_project(tmp_path, "manifest_lineage_chain.json")
+
+    without_impact = runner.invoke(
+        app,
+        [
+            "lineage",
+            str(project_dir),
+            "customer_id",
+            "--model",
+            "raw_banking.customers",
+            "--direction",
+            "downstream",
+            "--json",
+        ],
+    )
+    with_impact = runner.invoke(
+        app,
+        [
+            "lineage",
+            str(project_dir),
+            "customer_id",
+            "--model",
+            "raw_banking.customers",
+            "--direction",
+            "downstream",
+            "--json",
+            "--impact",
+        ],
+    )
+
+    assert without_impact.exit_code == 0
+    assert with_impact.exit_code == 0
+    without_payload: dict[str, Any] = json.loads(without_impact.stdout)
+    with_payload: dict[str, Any] = json.loads(with_impact.stdout)
+
+    assert "impact_summary" not in without_payload
+    # Every field present without --impact must be byte-for-byte
+    # identical with it -- --impact only ADDS a field.
+    for key in without_payload:
+        assert with_payload[key] == without_payload[key]
+
+    impact_summary = with_payload["impact_summary"]
+    # raw_banking.customers.customer_id fans out to stg_customers (dead
+    # end) and, through int_customer_activity, to mart_customer_overview
+    # -- 3 distinct models affected (int_customer_activity's own
+    # customer_id column counts too, not just the terminal mart), 3
+    # columns total (one per model).
+    assert impact_summary["affected_model_count"] == 3
+    assert impact_summary["affected_column_count"] == 3
+    assert {entry["model"] for entry in impact_summary["all_impacted"]} == {
+        "stg_customers",
+        "int_customer_activity",
+        "mart_customer_overview",
+    }
+
+
+def test_lineage_impact_human_output_adds_a_section_below_the_existing_chain(
+    tmp_path: Path,
+) -> None:
+    project_dir = _write_manifest_project(tmp_path, "manifest_lineage_chain.json")
+
+    result = runner.invoke(
+        app,
+        [
+            "lineage",
+            str(project_dir),
+            "customer_id",
+            "--model",
+            "raw_banking.customers",
+            "--direction",
+            "downstream",
+            "--impact",
+        ],
+    )
+
+    assert result.exit_code == 0
+    # Existing chain output (regression guard) is still there...
+    assert "Downstream lineage:" in result.stdout
+    assert "mart_customer_overview" in result.stdout
+    # ...with the new impact section printed below it.
+    assert "Downstream impact:" in result.stdout
+    assert "3 model" in result.stdout
+
+
+def test_lineage_impact_on_a_terminal_column_reports_no_impact(tmp_path: Path) -> None:
+    # mart_customer_overview is the end of the chain fixture's DAG.
+    project_dir = _write_manifest_project(tmp_path, "manifest_lineage_chain.json")
+
+    result = runner.invoke(
+        app,
+        [
+            "lineage",
+            str(project_dir),
+            "customer_id",
+            "--model",
+            "mart_customer_overview",
+            "--direction",
+            "downstream",
+            "--impact",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "No downstream impact" in result.stdout
+
+
+def test_lineage_without_impact_flag_output_is_unchanged(tmp_path: Path) -> None:
+    # Explicit byte-for-byte regression guard: omitting --impact must
+    # never print an impact section, even though the flag now exists.
+    project_dir = _write_manifest_project(tmp_path, "manifest_lineage_chain.json")
+
+    result = runner.invoke(
+        app,
+        [
+            "lineage",
+            str(project_dir),
+            "customer_id",
+            "--model",
+            "raw_banking.customers",
+            "--direction",
+            "downstream",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Downstream impact:" not in result.stdout
