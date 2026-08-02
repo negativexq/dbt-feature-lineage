@@ -18,12 +18,14 @@ import networkx as nx
 import pytest
 from sqlglot.lineage import Node
 
+import dbt_feature_lineage.services.lineage_service as lineage_service
 from dbt_feature_lineage.domain.lineage import ColumnNode
 from dbt_feature_lineage.domain.models import DbtDependency, DbtModel, DbtProject
 from dbt_feature_lineage.loaders.manifest_loader import load_dbt_project_from_manifest
 from dbt_feature_lineage.loaders.project_loader import load_dbt_project
 from dbt_feature_lineage.services.lineage_service import (
     CircularDependencyError,
+    _break_cycles,
     build_project_lineage,
     get_column_lineage,
     lineage_cache_key,
@@ -293,6 +295,107 @@ def test_acyclic_real_projects_do_not_raise(
     build_project_lineage(manifest_project)
     build_project_lineage(static_project)
     build_project_lineage(chain_project)
+
+
+# ---------------------------------------------------------------------------
+# _break_cycles(): a column-level cycle _guard_against_circular_dependencies
+# can't see (it only checks model-level ref() dependencies), since it can
+# arise purely from ColumnNode identity collisions -- a CTE-scoped column
+# sharing a bare name with another output column of the same model -- with
+# no cyclic ref() and no cyclic raw SQL involved. Tested by constructing the
+# merged graph directly rather than crafting SQL sqlglot happens to produce
+# this from, since the fix operates on the graph, not on how it got that way.
+# ---------------------------------------------------------------------------
+
+
+def _two_node_cycle() -> tuple[nx.DiGraph, ColumnNode, ColumnNode]:
+    node_a = ColumnNode(model="mart_amount", column="amount", layer="marts")
+    node_b = ColumnNode(model="mart_amount", column="final_amount", layer="marts")
+
+    graph = nx.DiGraph()
+    graph.add_edge(node_a, node_b, transformation_type="direct", expression_sql="a")
+    graph.add_edge(node_b, node_a, transformation_type="direct", expression_sql="b")
+
+    return graph, node_a, node_b
+
+
+def test_break_cycles_makes_the_graph_acyclic() -> None:
+    graph, _node_a, _node_b = _two_node_cycle()
+    warnings: list[str] = []
+
+    _break_cycles(graph, warnings)
+
+    assert nx.is_directed_acyclic_graph(graph)
+
+
+def test_break_cycles_keeps_both_nodes_drops_only_one_edge() -> None:
+    graph, node_a, node_b = _two_node_cycle()
+    warnings: list[str] = []
+
+    _break_cycles(graph, warnings)
+
+    assert node_a in graph.nodes
+    assert node_b in graph.nodes
+    assert graph.number_of_edges() == 1
+
+
+def test_break_cycles_reports_a_warning_naming_both_columns() -> None:
+    graph, node_a, node_b = _two_node_cycle()
+    warnings: list[str] = []
+
+    _break_cycles(graph, warnings)
+
+    assert len(warnings) == 1
+    assert f"{node_a.model}.{node_a.column}" in warnings[0]
+    assert f"{node_b.model}.{node_b.column}" in warnings[0]
+
+
+def test_break_cycles_handles_multiple_independent_cycles() -> None:
+    graph, _node_a, _node_b = _two_node_cycle()
+    node_c = ColumnNode(model="mart_other", column="x", layer="marts")
+    node_d = ColumnNode(model="mart_other", column="y", layer="marts")
+    graph.add_edge(node_c, node_d, transformation_type="direct", expression_sql="c")
+    graph.add_edge(node_d, node_c, transformation_type="direct", expression_sql="d")
+    warnings: list[str] = []
+
+    _break_cycles(graph, warnings)
+
+    assert nx.is_directed_acyclic_graph(graph)
+    assert len(warnings) == 2
+
+
+def test_break_cycles_is_a_noop_on_an_already_acyclic_graph(chain_project: DbtProject) -> None:
+    graph = build_project_lineage(chain_project)
+    edges_before = graph.number_of_edges()
+    warnings: list[str] = []
+
+    _break_cycles(graph, warnings)
+
+    assert graph.number_of_edges() == edges_before
+    assert warnings == []
+
+
+def test_build_project_lineage_calls_break_cycles_on_its_own_result(
+    chain_project: DbtProject, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Wiring check: build_project_lineage() must call _break_cycles() on
+    # every build, not just leave it available as an unused helper --
+    # topological_sort (which get_upstream_chain/get_downstream_chain both
+    # rely on) requires a DAG, so a cyclic *return value* would crash the
+    # CLI/UI exactly the way _break_cycles's own unit tests above exist to
+    # prevent.
+    calls: list[nx.DiGraph] = []
+    real_break_cycles = lineage_service._break_cycles
+
+    def spy_break_cycles(graph: nx.DiGraph, warnings: list[str]) -> None:
+        calls.append(graph)
+        real_break_cycles(graph, warnings)
+
+    monkeypatch.setattr(lineage_service, "_break_cycles", spy_break_cycles)
+
+    build_project_lineage(chain_project)
+
+    assert len(calls) == 1
 
 
 # ---------------------------------------------------------------------------

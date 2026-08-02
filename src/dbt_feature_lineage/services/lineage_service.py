@@ -116,6 +116,7 @@ def build_project_lineage(project: DbtProject) -> nx.DiGraph:
                     expression_sql=edge.expression_sql,
                 )
 
+    _break_cycles(graph, lineage_warnings)
     graph.graph["lineage_warnings"] = lineage_warnings
 
     return graph
@@ -139,6 +140,43 @@ def lineage_cache_key(project: DbtProject) -> tuple[str, str, str | None, int, s
         len(project.models),
         model_fingerprint,
     )
+
+
+def _break_cycles(graph: nx.DiGraph, lineage_warnings: list[str]) -> None:
+    """Drop the minimum edges needed to make `graph` acyclic, in place.
+
+    _guard_against_circular_dependencies only checks model-level ref()
+    dependencies -- it can't see a column-level cycle that only exists
+    because ColumnNode identity is (model, column, layer), not "this exact
+    position in the parse tree": a CTE-scoped column that happens to share
+    a bare name with another output column of the same model (e.g. both
+    named "amount") gets merged into the same graph node even though
+    sqlglot's own per-column Node tree never had a cycle, and if that
+    shared name is referenced from more than one place the *merged* graph
+    can come out cyclic even though every individual sqlglot lineage()
+    call that built it was perfectly acyclic. get_upstream_chain/
+    get_downstream_chain both require a DAG (nx.topological_sort), so
+    rather than let that raise NetworkXUnfeasible and crash the CLI/UI,
+    each cycle found is broken by dropping its last edge and reported via
+    lineage_warnings -- same "skip and report, never crash or stay
+    silent" contract as the SqlglotError handling above.
+    """
+
+    while not nx.is_directed_acyclic_graph(graph):
+        cycle_edges = nx.find_cycle(graph)
+        cycle_nodes = [source for source, _target in cycle_edges]
+        cycle_nodes.append(cycle_edges[-1][1])
+        path = " -> ".join(f"{node.model}.{node.column}" for node in cycle_nodes)
+
+        source, target = cycle_edges[-1][0], cycle_edges[-1][1]
+        graph.remove_edge(source, target)
+
+        lineage_warnings.append(
+            f"Circular column lineage detected and truncated ({path}): likely two "
+            "differently-scoped columns sharing the same output name within one "
+            "model (e.g. a CTE-internal column and a final SELECT column both "
+            "named the same thing)."
+        )
 
 
 def _guard_against_circular_dependencies(project: DbtProject) -> None:
