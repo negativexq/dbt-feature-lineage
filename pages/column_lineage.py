@@ -1,4 +1,4 @@
-"""Column Lineage page: project-wide column search + upstream lineage graph.
+"""Column Lineage page: project-wide column search + upstream/downstream lineage graph.
 
 Independent of Model Explorer's model selection -- this searches the
 whole project by column name, not a single selected model.
@@ -17,7 +17,11 @@ from pathlib import Path
 
 import streamlit as st
 
-from dbt_feature_lineage.services.column_search import build_search_index, get_upstream_chain
+from dbt_feature_lineage.services.column_search import (
+    build_search_index,
+    get_downstream_chain,
+    get_upstream_chain,
+)
 from dbt_feature_lineage.services.lineage_service import lineage_cache_key
 from dbt_feature_lineage.ui import build_lineage_dot
 from dbt_feature_lineage.ui.state import (
@@ -57,6 +61,12 @@ if lineage_warnings:
             st.warning(warning)
 
 search_term = st.text_input("Search for a column", value="", key="lineage_search")
+direction_label = st.radio(
+    "Direction",
+    options=["Upstream (to raw sources)", "Downstream (to consumers)"],
+    horizontal=True,
+    key="lineage_direction",
+)
 search_index = build_search_index(lineage_graph)
 matches = [
     node
@@ -73,10 +83,20 @@ elif matches:
         "Select a match", options=sorted(label_to_node), key="lineage_match"
     )
     target = label_to_node[selected_label]
-    chain = get_upstream_chain(lineage_graph, target)
+    is_upstream = direction_label.startswith("Upstream")
+    chain = (
+        get_upstream_chain(lineage_graph, target)
+        if is_upstream
+        else get_downstream_chain(lineage_graph, target)
+    )
 
     if len(chain) == 1:
-        st.info("No upstream lineage found for this column (raw source or no traceable inputs).")
+        message = (
+            "No upstream lineage found for this column (raw source or no traceable inputs)."
+            if is_upstream
+            else "No downstream lineage found for this column (nothing consumes it)."
+        )
+        st.info(message)
     else:
         large_view = len(chain) > 12 and st.checkbox("Show larger view", key="lineage_large_view")
         chain_subgraph = lineage_graph.subgraph(chain)

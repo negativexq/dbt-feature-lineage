@@ -24,8 +24,8 @@ Large dbt projects can contain many models, CTEs, joins, transformations, and fe
 - Output-column extraction and transformation-type classification
 - Streamlit model explorer with model search and layer filtering
 - Overview, Query Flow, Columns, and Raw SQL tabs
-
-Full cross-model column-level lineage is not implemented yet.
+- Cross-model column-level lineage: traces a column back through joins, coalesces, and renames to its raw source(s), via a project-wide `networkx` graph
+- `lineage` CLI command and a dedicated "Column Lineage" Streamlit page for searching a column by name and viewing its upstream chain
 
 ## Demo project
 
@@ -66,6 +66,7 @@ flowchart LR
 ```text
 dbt-feature-lineage/
 ├── app.py
+├── pages/
 ├── src/dbt_feature_lineage/
 │   ├── cli.py
 │   ├── domain/
@@ -117,25 +118,35 @@ dbt-feature-lineage analyze examples/sample_banking_dbt
 dbt-feature-lineage analyze examples/sample_banking_dbt --json
 dbt-feature-lineage analyze examples/sample_banking_dbt --generate-artifacts
 dbt-feature-lineage inspect examples/sample_banking_dbt mart_customer_features
+dbt-feature-lineage lineage examples/sample_banking_dbt customer_id
+dbt-feature-lineage lineage examples/sample_banking_dbt customer_id --model mart_customer_features
+dbt-feature-lineage lineage examples/sample_banking_dbt customer_id --json
 ```
 
 `--generate-artifacts` runs `dbt parse` to produce `target/manifest.json` if it doesn't exist yet, then loads from it; if `dbt` isn't installed, no profile is found, or parsing fails, it falls back to static analysis and reports why instead of failing silently. Without the flag, `analyze` prompts interactively only when a manifest is missing and the terminal is interactive; non-interactive runs (CI, pipes) skip straight to static analysis.
+
+`lineage` traces a column back to its raw source(s) across the whole project, building a project-wide lineage graph and printing the upstream chain. Use `--model` to disambiguate when more than one model produces a column with that name.
 
 Equivalent one-shot Docker commands are:
 
 ```bash
 docker compose run --rm app dbt-feature-lineage analyze examples/sample_banking_dbt
 docker compose run --rm app dbt-feature-lineage inspect examples/sample_banking_dbt mart_customer_features
+docker compose run --rm app dbt-feature-lineage lineage examples/sample_banking_dbt customer_id
 ```
 
 ## Web interface
 
-The Streamlit application defaults to `examples/sample_banking_dbt`. Use the sidebar to search, filter, and select models.
+The Streamlit application defaults to `examples/sample_banking_dbt` and has two pages, selectable from the sidebar navigation.
+
+**Model Explorer** — select a single model and dig into it via four tabs:
 
 - **Overview:** model path, layer, upstream models, source dependencies, and summary counts
 - **Query Flow:** sources, upstream models, CTEs, joins, filters, aggregations, and final output
 - **Columns:** output expressions, transformation types, referenced input columns, and selected-column details
 - **Raw SQL:** original SQL and the preprocessed SQL sent to sqlglot
+
+**Column Lineage** — independent of Model Explorer's model selection; searches the whole project by column name and renders the matching column's upstream chain (back to its raw source(s)) as a graph.
 
 <!-- Add screenshot: docs/images/model-overview.png -->
 
@@ -151,7 +162,6 @@ The MVP does not execute arbitrary dbt macros.
 
 ## Limitations
 
-- Full cross-model column lineage is not implemented.
 - There is no dbt Cloud, Airflow, or warehouse integration.
 - The UI does not clone Git repositories.
 - Complex custom macros may not parse correctly.
@@ -162,7 +172,7 @@ The MVP does not execute arbitrary dbt macros.
 
 - [x] Manifest-first analysis
 - [x] Compiled SQL support
-- [ ] Cross-model column lineage
+- [x] Cross-model column lineage
 - [ ] Feature Store raw-source tracing
 - [ ] Impact analysis
 - [ ] Interactive lineage graph

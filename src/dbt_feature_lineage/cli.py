@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -17,12 +18,23 @@ from rich.table import Table
 from dbt_feature_lineage.domain.lineage import ColumnNode
 from dbt_feature_lineage.domain.models import ArtifactStatus, DbtModelAnalysis, DbtProject
 from dbt_feature_lineage.loaders.artifact_detector import resolve_dbt_project
-from dbt_feature_lineage.services.column_search import build_search_index, get_upstream_chain
+from dbt_feature_lineage.services.column_search import (
+    build_search_index,
+    get_downstream_chain,
+    get_upstream_chain,
+)
 from dbt_feature_lineage.services.lineage_service import build_project_lineage
 from dbt_feature_lineage.services.model_analysis_service import inspect_model
 
 app = typer.Typer(no_args_is_help=True)
 console = Console()
+
+
+class LineageDirection(str, Enum):
+    """Which way to walk the lineage graph from the resolved target column."""
+
+    upstream = "upstream"
+    downstream = "downstream"
 
 
 @app.callback()
@@ -226,27 +238,36 @@ def _render_lineage_warnings(warnings: list[str]) -> None:
 
 
 def _render_lineage_chain(
-    target: ColumnNode, chain: list[ColumnNode], subgraph: nx.DiGraph
+    target: ColumnNode,
+    chain: list[ColumnNode],
+    subgraph: nx.DiGraph,
+    direction: LineageDirection,
 ) -> None:
     console.print(f"Column: {target.column}")
     console.print(f"Model: {target.model} (layer: {target.layer})")
     console.print()
 
     if len(chain) == 1:
-        console.print(
-            "[yellow]No upstream lineage found "
-            "(this is a raw source or has no traceable inputs).[/yellow]"
-        )
+        if direction is LineageDirection.upstream:
+            console.print(
+                "[yellow]No upstream lineage found "
+                "(this is a raw source or has no traceable inputs).[/yellow]"
+            )
+        else:
+            console.print(
+                "[yellow]No downstream lineage found "
+                "(nothing in this project consumes this column).[/yellow]"
+            )
         return
 
     # Edge list, not a single "a -> b -> c" arrow chain: a column fed by
-    # more than one upstream input (e.g. coalesce()/joins) has a genuinely
-    # branching ancestor DAG, not one linear path (docs/v0.4-plan.md Bölüm 3).
-    # Printed as plain lines rather than a Table: model.column identifiers
-    # (schema-qualified in manifest mode) are long enough that a
-    # column-width-constrained Table truncates them with "…" on anything
-    # but a wide terminal.
-    console.print("Upstream lineage:")
+    # more than one upstream input (e.g. coalesce()/joins), or feeding more
+    # than one downstream output, has a genuinely branching DAG, not one
+    # linear path (docs/v0.4-plan.md Bölüm 3). Printed as plain lines rather
+    # than a Table: model.column identifiers (schema-qualified in manifest
+    # mode) are long enough that a column-width-constrained Table truncates
+    # them with "…" on anything but a wide terminal.
+    console.print(f"{direction.value.capitalize()} lineage:")
     for source, edge_target, data in subgraph.edges(data=True):
         console.print(
             f"  {source.model}.{source.column} -> {edge_target.model}.{edge_target.column} "
@@ -260,11 +281,13 @@ def _build_lineage_payload(
     chain: list[ColumnNode],
     subgraph: nx.DiGraph,
     lineage_warnings: list[str],
+    direction: LineageDirection,
 ) -> dict[str, Any]:
     return {
         "column": target.column,
         "model": target.model,
         "layer": target.layer,
+        "direction": direction.value,
         "chain": [node.model_dump(mode="json") for node in chain],
         "edges": [
             {
@@ -330,13 +353,18 @@ def inspect(
 @app.command()
 def lineage(
     project_path: str = typer.Argument(..., help="Path to a local dbt project."),
-    column_name: str = typer.Argument(..., help="Column name to trace upstream."),
+    column_name: str = typer.Argument(..., help="Column name to trace."),
     model_name: str | None = typer.Option(
         None, "--model", help="Disambiguate when multiple models produce this column."
     ),
+    direction: LineageDirection = typer.Option(
+        LineageDirection.upstream,
+        "--direction",
+        help="Trace upstream to raw sources, or downstream to consumers.",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON."),
 ) -> None:
-    """Trace a column's lineage back to its raw source(s)."""
+    """Trace a column's lineage to its raw source(s) or downstream consumers."""
 
     resolved_path = Path(project_path).expanduser().resolve()
     project = resolve_dbt_project(resolved_path, generate_artifacts=False)
@@ -345,16 +373,19 @@ def lineage(
 
     matches = build_search_index(graph).get(column_name, [])
     target = _resolve_ambiguous_match(matches, model_name, column_name)
-    chain = get_upstream_chain(graph, target)
+    get_chain = (
+        get_upstream_chain if direction is LineageDirection.upstream else get_downstream_chain
+    )
+    chain = get_chain(graph, target)
     subgraph = graph.subgraph(chain)
 
     if json_output:
-        payload = _build_lineage_payload(target, chain, subgraph, lineage_warnings)
+        payload = _build_lineage_payload(target, chain, subgraph, lineage_warnings, direction)
         typer.echo(json.dumps(payload, indent=2))
         return
 
     _render_lineage_warnings(lineage_warnings)
-    _render_lineage_chain(target, chain, subgraph)
+    _render_lineage_chain(target, chain, subgraph, direction)
 
 
 def main() -> None:
