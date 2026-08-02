@@ -19,9 +19,11 @@ from dbt_feature_lineage.domain.lineage import ColumnNode
 from dbt_feature_lineage.domain.models import ArtifactStatus, DbtModelAnalysis, DbtProject
 from dbt_feature_lineage.loaders.artifact_detector import resolve_dbt_project
 from dbt_feature_lineage.services.column_search import (
+    DownstreamImpactSummary,
     build_search_index,
     get_downstream_chain,
     get_upstream_chain,
+    summarize_downstream_impact,
 )
 from dbt_feature_lineage.services.lineage_service import build_project_lineage
 from dbt_feature_lineage.services.model_analysis_service import inspect_model
@@ -302,6 +304,43 @@ def _build_lineage_payload(
     }
 
 
+def _impact_summary_payload(summary: DownstreamImpactSummary) -> dict[str, Any]:
+    return {
+        "affected_model_count": summary.affected_model_count,
+        "affected_column_count": summary.affected_column_count,
+        "direct": [{"model": impact.model, "columns": impact.columns} for impact in summary.direct],
+        "all_impacted": [
+            {"model": impact.model, "columns": impact.columns} for impact in summary.all_impacted
+        ],
+    }
+
+
+def _render_downstream_impact_summary(summary: DownstreamImpactSummary) -> None:
+    # Printed below _render_lineage_chain()'s own output, never instead
+    # of it (docs/v0.8-plan.md Bölüm 3/6) -- --impact only ADDS a section.
+    console.print()
+    console.print("Downstream impact:")
+
+    if summary.affected_model_count == 0:
+        console.print("  No downstream impact (nothing in this project consumes this column).")
+        return
+
+    console.print(
+        f"  {summary.affected_model_count} model(s), "
+        f"{summary.affected_column_count} column(s) affected."
+    )
+
+    console.print()
+    console.print("  Directly affected:")
+    for impact in summary.direct:
+        console.print(f"    {impact.model}: {', '.join(impact.columns)}")
+
+    console.print()
+    console.print("  All affected (direct + transitive):")
+    for impact in summary.all_impacted:
+        console.print(f"    {impact.model}: {', '.join(impact.columns)}")
+
+
 @app.command()
 def analyze(
     project_path: str = typer.Argument(..., help="Path to a local dbt project."),
@@ -362,9 +401,24 @@ def lineage(
         "--direction",
         help="Trace upstream to raw sources, or downstream to consumers.",
     ),
+    impact: bool = typer.Option(
+        False,
+        "--impact",
+        help=(
+            "Add a model-grouped downstream impact summary "
+            "(only valid with --direction downstream)."
+        ),
+    ),
     json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON."),
 ) -> None:
     """Trace a column's lineage to its raw source(s) or downstream consumers."""
+
+    if impact and direction is not LineageDirection.downstream:
+        console.print(
+            "[red]--impact is only valid with --direction downstream "
+            "(a column's own upstream sources aren't an \"impact\").[/red]"
+        )
+        raise typer.Exit(code=1)
 
     resolved_path = Path(project_path).expanduser().resolve()
     project = resolve_dbt_project(resolved_path, generate_artifacts=False)
@@ -381,11 +435,17 @@ def lineage(
 
     if json_output:
         payload = _build_lineage_payload(target, chain, subgraph, lineage_warnings, direction)
+        if impact:
+            payload["impact_summary"] = _impact_summary_payload(
+                summarize_downstream_impact(graph, target, chain)
+            )
         typer.echo(json.dumps(payload, indent=2))
         return
 
     _render_lineage_warnings(lineage_warnings)
     _render_lineage_chain(target, chain, subgraph, direction)
+    if impact:
+        _render_downstream_impact_summary(summarize_downstream_impact(graph, target, chain))
 
 
 def main() -> None:
