@@ -48,3 +48,19 @@ def get_upstream_chain(graph: nx.DiGraph, target: ColumnNode) -> list[ColumnNode
     ancestors = nx.ancestors(graph, target)
     subgraph = graph.subgraph({*ancestors, target})
     return list(nx.topological_sort(subgraph))
+
+
+def get_downstream_chain(graph: nx.DiGraph, target: ColumnNode) -> list[ColumnNode]:
+    """The target plus every descendant, in topological (source-first) order.
+
+    Symmetric to get_upstream_chain: edges run source (upstream) -> target
+    (downstream), so nx.descendants(graph, target) is directly "everything
+    downstream of target" -- everything that (transitively) consumes it.
+    Just like the upstream case, the result is a flat, topologically-sorted
+    list rather than a single linear path: a column consumed by more than
+    one downstream output has a genuinely branching descendant DAG.
+    """
+
+    descendants = nx.descendants(graph, target)
+    subgraph = graph.subgraph({target, *descendants})
+    return list(nx.topological_sort(subgraph))

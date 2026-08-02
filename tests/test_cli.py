@@ -426,3 +426,111 @@ def test_lineage_shows_lineage_warnings_in_human_output(tmp_path: Path) -> None:
 
     assert result.exit_code == 0
     assert "broken_model" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# `lineage` command: --direction downstream
+# ---------------------------------------------------------------------------
+
+
+def test_lineage_direction_defaults_to_upstream(tmp_path: Path) -> None:
+    project_dir = _write_manifest_project(tmp_path, "manifest_lineage_chain.json")
+
+    result = runner.invoke(
+        app,
+        ["lineage", str(project_dir), "customer_id", "--model", "mart_customer_overview", "--json"],
+    )
+
+    assert result.exit_code == 0
+    payload: dict[str, Any] = json.loads(result.stdout)
+    assert payload["direction"] == "upstream"
+
+
+def test_lineage_direction_downstream_from_raw_source(tmp_path: Path) -> None:
+    # raw_banking.customers.customer_id fans out to stg_customers directly
+    # (a dead end) and, separately, through int_customer_activity to
+    # mart_customer_overview -- a genuine branching downstream DAG (see
+    # test_column_search.py's module note on this fixture's real topology).
+    project_dir = _write_manifest_project(tmp_path, "manifest_lineage_chain.json")
+
+    result = runner.invoke(
+        app,
+        [
+            "lineage",
+            str(project_dir),
+            "customer_id",
+            "--model",
+            "raw_banking.customers",
+            "--direction",
+            "downstream",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload: dict[str, Any] = json.loads(result.stdout)
+    assert payload["direction"] == "downstream"
+    chain_models = {entry["model"] for entry in payload["chain"]}
+    assert chain_models == {
+        "raw_banking.customers",
+        "stg_customers",
+        "int_customer_activity",
+        "mart_customer_overview",
+    }
+    assert len(payload["edges"]) == 3
+
+
+def test_lineage_direction_downstream_human_output(tmp_path: Path) -> None:
+    project_dir = _write_manifest_project(tmp_path, "manifest_lineage_chain.json")
+
+    result = runner.invoke(
+        app,
+        [
+            "lineage",
+            str(project_dir),
+            "customer_id",
+            "--model",
+            "raw_banking.customers",
+            "--direction",
+            "downstream",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Downstream lineage:" in result.stdout
+    assert "mart_customer_overview" in result.stdout
+
+
+def test_lineage_direction_downstream_terminal_column_reports_no_lineage(
+    tmp_path: Path,
+) -> None:
+    # mart_customer_overview is the end of the chain fixture's DAG -- nothing
+    # downstream consumes it, so the single-element chain path must be hit.
+    project_dir = _write_manifest_project(tmp_path, "manifest_lineage_chain.json")
+
+    result = runner.invoke(
+        app,
+        [
+            "lineage",
+            str(project_dir),
+            "customer_id",
+            "--model",
+            "mart_customer_overview",
+            "--direction",
+            "downstream",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "No downstream lineage found" in result.stdout
+
+
+def test_lineage_direction_invalid_value_exits_nonzero(tmp_path: Path) -> None:
+    project_dir = _write_manifest_project(tmp_path, "manifest_lineage_chain.json")
+
+    result = runner.invoke(
+        app,
+        ["lineage", str(project_dir), "customer_id", "--direction", "sideways"],
+    )
+
+    assert result.exit_code != 0
