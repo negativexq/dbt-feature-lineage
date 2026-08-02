@@ -20,6 +20,8 @@ sqlglot.lineage() calls) is a fraction of that cost.
 
 from __future__ import annotations
 
+import hashlib
+
 import networkx as nx
 
 from dbt_feature_lineage.domain.models import DbtProject
@@ -73,3 +75,39 @@ def build_model_dag(project: DbtProject) -> nx.DiGraph:
     graph.graph["model_dag_warnings"] = [*circular_warnings, *project_schema.schema_warnings]
 
     return graph
+
+
+def model_dag_cache_key(project: DbtProject) -> tuple[str, str, str | None, int, str]:
+    """A pure, content-sensitive cache key -- same shape/spirit as
+    lineage_service.lineage_cache_key(), but fingerprints what
+    build_model_dag() actually reads: ref_dependencies (edges) and the
+    node metadata fields (materialization/description/tags/owner/
+    test_count), not just raw_sql. A tag or owner edit with no SQL change
+    must still bust this cache, which lineage_cache_key's SQL-only
+    fingerprint wouldn't catch."""
+
+    fingerprint_source = "|".join(
+        ":".join(
+            [
+                model.name,
+                model.raw_sql,
+                model.materialization or "",
+                model.description or "",
+                ",".join(sorted(model.tags)),
+                model.owner or "",
+                str(model.test_count),
+                ",".join(sorted(dep.target_name for dep in model.ref_dependencies)),
+            ]
+        )
+        for model in sorted(project.models, key=lambda m: m.name)
+    )
+    model_fingerprint = hashlib.sha256(fingerprint_source.encode("utf-8")).hexdigest()
+    artifact_reason = project.artifact_status.reason if project.artifact_status else None
+
+    return (
+        project.project_path,
+        project.source,
+        artifact_reason,
+        len(project.models),
+        model_fingerprint,
+    )

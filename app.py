@@ -1,10 +1,10 @@
 """Streamlit application entry point -- multi-page navigation.
 
-Model Explorer (single-model deep dive) and Column Lineage (project-wide
-search) are separate pages so that Column Lineage's expensive
-build_project_lineage() call only runs when a user actually visits that
-page. See pages/column_lineage.py's module docstring for why this split
-replaced the earlier single-page, st.tabs()-based layout.
+Model Explorer (single-model deep dive), Model DAG (project-wide
+model-level graph), and Column Lineage (project-wide column search) are
+separate pages so that each page's expensive graph-building call only
+runs when a user actually visits that page. See pages/column_lineage.py's
+and pages/model_dag.py's module docstrings for why.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ st.set_page_config(page_title="dbt Feature Lineage", layout="wide")
 pages = st.navigation(
     [
         st.Page("pages/model_explorer.py", title="Model Explorer", default=True),
+        st.Page("pages/model_dag.py", title="Model DAG"),
         st.Page("pages/column_lineage.py", title="Column Lineage"),
     ]
 )
