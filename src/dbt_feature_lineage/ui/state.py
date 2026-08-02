@@ -21,6 +21,7 @@ from dbt_feature_lineage.loaders.artifact_detector import resolve_dbt_project
 from dbt_feature_lineage.services.lineage_service import build_project_lineage
 from dbt_feature_lineage.services.model_analysis_service import inspect_model
 from dbt_feature_lineage.services.model_dag_service import build_model_dag
+from dbt_feature_lineage.ui.rendering import filter_models_by_group
 
 DEFAULT_PROJECT_PATH = "examples/sample_banking_dbt"
 
@@ -53,15 +54,45 @@ def cached_inspect_model(project_path: str, model_name: str):
     return inspect_model(project_path, model_name)
 
 
+def _project_scoped_to_group(project: DbtProject, selected_group: str | None) -> DbtProject:
+    """Narrow `project.models` to one model_group before an expensive
+    graph build, if a group is actually selected.
+
+    Filtering here (before build_project_lineage()/build_model_dag())
+    rather than after is deliberate: the group is chosen once, up front,
+    on pages/select_project.py (not a live, frequently-changed widget the
+    way v0.5's per-page multiselect was), so there's no repeated-rebuild
+    cost to worry about, and skipping the subgraph-filtering step this
+    replaced is both simpler and cheaper than building the full graph and
+    throwing most of it away.
+    """
+
+    if selected_group is None:
+        return project
+    return project.model_copy(
+        update={"models": filter_models_by_group(project.models, [selected_group])}
+    )
+
+
 @st.cache_data(show_spinner=False)
 def cached_build_project_lineage(
-    project_path: str, manifest_cache_key: float, lineage_key: tuple
+    project_path: str,
+    manifest_cache_key: float,
+    lineage_key: tuple,
+    selected_group: str | None,
 ) -> nx.DiGraph:
     """Same cache-busting pattern as cached_load_project: `lineage_key`
     (from services.lineage_service.lineage_cache_key()) is computed cheaply
     by the caller and passed in as a plain hashable argument, rather than
     caching on the DbtProject object itself (untested with Streamlit's own
     hashing, and cached_load_project never took that risk either).
+
+    `selected_group` is a plain function argument specifically so
+    st.cache_data's own argument-hashing keys the cache on it too --
+    switching the shared model group (pages/select_project.py) must
+    build (and cache) a genuinely different graph, not silently reuse a
+    previous group's cached result just because lineage_key (computed
+    from the *unfiltered* project) didn't change.
 
     Only called from pages/column_lineage.py -- st.navigation() pages are
     lazy (only the active page's script executes), so this expensive,
@@ -71,16 +102,23 @@ def cached_build_project_lineage(
     """
 
     project = cached_load_project(project_path, manifest_cache_key)
+    project = _project_scoped_to_group(project, selected_group)
     return build_project_lineage(project)
 
 
 @st.cache_data(show_spinner=False)
 def cached_build_model_dag(
-    project_path: str, manifest_cache_key: float, model_dag_key: tuple
+    project_path: str,
+    manifest_cache_key: float,
+    model_dag_key: tuple,
+    selected_group: str | None,
 ) -> nx.DiGraph:
-    """Same cache-busting pattern as cached_build_project_lineage: `model_dag_key`
-    (from services.model_dag_service.model_dag_cache_key()) is computed
-    cheaply by the caller and passed in as a plain hashable argument.
+    """Same cache-busting pattern as cached_build_project_lineage:
+    `model_dag_key` (from services.model_dag_service.model_dag_cache_key())
+    is computed cheaply by the caller and passed in as a plain hashable
+    argument, and `selected_group` is folded in the same way -- see that
+    function's docstring for why it can't just ride along on
+    manifest_cache_key/model_dag_key instead.
 
     Only called from pages/model_dag.py -- st.navigation() pages are lazy
     (only the active page's script executes), same reasoning as
@@ -88,4 +126,5 @@ def cached_build_model_dag(
     """
 
     project = cached_load_project(project_path, manifest_cache_key)
+    project = _project_scoped_to_group(project, selected_group)
     return build_model_dag(project)

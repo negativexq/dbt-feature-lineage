@@ -142,6 +142,31 @@ def test_build_model_dag_node_attributes_carry_model_metadata() -> None:
     assert attrs["test_count"] == 2
 
 
+def test_build_model_dag_node_attributes_include_model_group() -> None:
+    # Lets pages/model_dag.py filter the graph by domain (Model Group
+    # sidebar filter) without going back to DbtProject.models -- the
+    # attribute is already on the node, same as materialization/owner/etc.
+    project = _project(
+        [
+            _model("stg_orders", "select 1", model_group="retail"),
+            _model("stg_borrowers", "select 1", model_group="lending"),
+        ]
+    )
+
+    graph = build_model_dag(project)
+
+    assert graph.nodes["stg_orders"]["model_group"] == "retail"
+    assert graph.nodes["stg_borrowers"]["model_group"] == "lending"
+
+
+def test_build_model_dag_node_model_group_defaults_to_none_for_a_flat_layout() -> None:
+    project = _project([_model("stg_customers", "select 1")])
+
+    graph = build_model_dag(project)
+
+    assert graph.nodes["stg_customers"]["model_group"] is None
+
+
 def test_build_model_dag_column_count_reflects_output_columns() -> None:
     project = _project([_model("mart_customers", "select id, name, email from stg_customers")])
 
