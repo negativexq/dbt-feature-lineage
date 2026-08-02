@@ -34,16 +34,6 @@ _ADAPTER_TO_DIALECT: dict[str, str] = {
 }
 
 
-class CircularDependencyError(ValueError):
-    """Raised when the project's ref() graph is not a DAG.
-
-    Checked against DbtModel.ref_dependencies *before* calling sqlglot --
-    exp.expand() (which `sources`-based stitching relies on) has no cycle
-    guard of its own, so a circular ref() would otherwise recurse without
-    bound (docs/v0.3-plan.md Risk 5).
-    """
-
-
 def resolve_dialect(project: DbtProject) -> str:
     """Map manifest metadata.adapter_type to a sqlglot dialect name."""
 
@@ -83,18 +73,30 @@ def build_project_lineage(project: DbtProject) -> nx.DiGraph:
     engine caught in examples/sample_banking_dbt during development) is
     skipped rather than aborting the whole build, but never silently: it's
     recorded in the returned graph's `graph["lineage_warnings"]`.
+
+    A model-level ref() cycle is handled the same way (see
+    resolve_circular_ref_dependencies): the models involved are excluded
+    from lineage entirely, and their entries are pruned from
+    `project_schema.sources` too -- otherwise a *third*, non-cyclic model
+    that merely references one of them would still hand sqlglot's
+    exp.expand() a `sources` chain that loops back on itself (verified:
+    exp.expand() has no cycle guard of its own and recurses without bound,
+    RecursionError, not a clean failure -- docs/v0.3-plan.md Risk 5).
     """
 
-    _guard_against_circular_dependencies(project)
+    excluded_models, circular_warnings = resolve_circular_ref_dependencies(project)
 
     project_schema = build_project_schema(project)
+    _exclude_models_from_sources(project_schema, excluded_models)
     dialect = resolve_dialect(project)
     layers = {model.name: model.layer for model in project.models}
 
     graph: nx.DiGraph = nx.DiGraph()
-    lineage_warnings: list[str] = []
+    lineage_warnings: list[str] = list(circular_warnings)
 
     for model in project.models:
+        if model.name in excluded_models:
+            continue
         for column_name in project_schema.columns_by_model.get(model.name, []):
             try:
                 root = get_column_lineage(project_schema, model.name, column_name, dialect)
@@ -145,7 +147,7 @@ def lineage_cache_key(project: DbtProject) -> tuple[str, str, str | None, int, s
 def _break_cycles(graph: nx.DiGraph, lineage_warnings: list[str]) -> None:
     """Drop the minimum edges needed to make `graph` acyclic, in place.
 
-    _guard_against_circular_dependencies only checks model-level ref()
+    resolve_circular_ref_dependencies() only checks model-level ref()
     dependencies -- it can't see a column-level cycle that only exists
     because ColumnNode identity is (model, column, layer), not "this exact
     position in the parse tree": a CTE-scoped column that happens to share
@@ -179,7 +181,28 @@ def _break_cycles(graph: nx.DiGraph, lineage_warnings: list[str]) -> None:
         )
 
 
-def _guard_against_circular_dependencies(project: DbtProject) -> None:
+def resolve_circular_ref_dependencies(project: DbtProject) -> tuple[set[str], list[str]]:
+    """Find model-level ref() cycles and report them without raising.
+
+    A real dbt project's ref() graph is always a DAG in practice (dbt
+    itself refuses to compile a cyclic one), so this is realistically only
+    reachable in static mode -- dependency_parser.py's regex-based ref()
+    extraction never goes through dbt's own compile-time validation. Used
+    by both build_project_lineage() (column-level) and
+    model_dag_service.build_model_dag() (model-level), so it lives here
+    rather than duplicated in each -- "the one place that already computes
+    this exact model-name graph" beats a second implementation, per
+    v0.4-plan.md's `column_search.py` split (avoid two things that only
+    look distinct from a granularity difference).
+
+    Returns (excluded_model_names, warnings): every model name that's part
+    of at least one cycle, plus one human-readable warning per cycle
+    found. A model in the returned set must be treated as opaque/unbuildable
+    by the caller -- for build_project_lineage specifically, that means
+    excluding it from lineage AND from `sources` (see
+    _exclude_models_from_sources), not just skipping it as a trace target.
+    """
+
     model_names = {model.name for model in project.models}
     dependency_graph: nx.DiGraph = nx.DiGraph()
     dependency_graph.add_nodes_from(model_names)
@@ -189,10 +212,38 @@ def _guard_against_circular_dependencies(project: DbtProject) -> None:
             if dependency.target_name in model_names:
                 dependency_graph.add_edge(dependency.target_name, model.name)
 
-    if not nx.is_directed_acyclic_graph(dependency_graph):
+    excluded_models: set[str] = set()
+    warnings: list[str] = []
+
+    while not nx.is_directed_acyclic_graph(dependency_graph):
         cycle = next(iter(nx.simple_cycles(dependency_graph)))
         chain = " -> ".join([*cycle, cycle[0]])
-        raise CircularDependencyError(f"Circular ref() dependency detected: {chain}")
+        warnings.append(f"Circular ref() dependency detected and excluded: {chain}")
+        excluded_models.update(cycle)
+        dependency_graph.remove_nodes_from(cycle)
+
+    return excluded_models, warnings
+
+
+def _exclude_models_from_sources(project_schema: ProjectSchema, excluded_models: set[str]) -> None:
+    """Remove every `sources` entry that resolves back to an excluded model.
+
+    Leaves `project_schema.schema`/`physical_to_model` untouched -- those
+    only drive column-name resolution (SELECT * disambiguation), not
+    recursive substitution, so an excluded model can still be correctly
+    identified as the owner of a leaf node when some other, non-cyclic
+    model references it. Only `sources` (what exp.expand() recursively
+    inlines) needs pruning to stop the cycle from propagating outward.
+    """
+
+    stale_keys = [
+        key
+        for key, model_name in project_schema.sources_key_to_model.items()
+        if model_name in excluded_models
+    ]
+    for key in stale_keys:
+        project_schema.sources.pop(key, None)
+        project_schema.sources_key_to_model.pop(key, None)
 
 
 def _convert_node(
