@@ -1,11 +1,16 @@
 """Model DAG page: project-wide model-level dependency graph (v0.5).
 
 Independent of Model Explorer's model selection and Column Lineage's
-column search -- its own "dbt project path" input, same pattern
-v0.4 established for Column Lineage (docs/v0.4-plan.md multi-page
-follow-up). Renders via streamlit-flow-component (React Flow) instead
-of build_lineage_dot()'s static graphviz DOT string, for zoom/pan/
-minimap/click-to-inspect -- see docs/v0.5-plan.md Bölüm 4.
+column search. Reads the project path and model group from shared
+session_state (set once on pages/select_project.py) rather than its own
+"dbt project path" input -- see pages/select_project.py's module
+docstring for why that's safe to rely on (session_state survives both
+st.switch_page() and ordinary sidebar navigation within one browser
+session; a full refresh resets it regardless of this design).
+
+Renders via streamlit-flow-component (React Flow) instead of v0.4's
+static graphviz DOT string, for zoom/pan/minimap/click-to-inspect -- see
+docs/v0.5-plan.md Bölüm 4.
 """
 
 from __future__ import annotations
@@ -20,23 +25,23 @@ from streamlit_flow.state import StreamlitFlowState
 from dbt_feature_lineage.services.model_dag_service import model_dag_cache_key
 from dbt_feature_lineage.ui import render_node_detail_panel
 from dbt_feature_lineage.ui.flow_rendering import build_model_dag_flow_elements
-from dbt_feature_lineage.ui.state import (
-    DEFAULT_PROJECT_PATH,
-    cached_build_model_dag,
-    cached_load_project,
-    manifest_mtime,
-)
+from dbt_feature_lineage.ui.state import cached_build_model_dag, cached_load_project, manifest_mtime
 
 st.title("Model DAG")
 st.caption("Searches the whole project's model-level dependencies, not just a single model.")
 
-project_path = st.text_input(
-    "dbt project path", value=DEFAULT_PROJECT_PATH, key="model_dag_project_path"
-)
+if "shared_project_path" not in st.session_state:
+    st.info("No project selected yet.")
+    st.page_link("pages/select_project.py", label="Select a project", icon="🗂️")
+    st.stop()
+
+project_path = st.session_state["shared_project_path"]
+selected_group = st.session_state.get("shared_model_group")
 resolved_path = Path(project_path).expanduser()
 
 if not resolved_path.exists():
     st.error(f"Project path does not exist: {resolved_path}")
+    st.page_link("pages/select_project.py", label="Select a project", icon="🗂️")
     st.stop()
 
 try:
@@ -45,9 +50,17 @@ except (FileNotFoundError, NotADirectoryError, ValueError) as exc:
     st.error(str(exc))
     st.stop()
 
+header_col, change_col = st.columns([4, 1])
+with header_col:
+    st.caption(f"Current project: **{project.name}** (group: {selected_group or 'All'})")
+with change_col:
+    st.page_link("pages/select_project.py", label="Change", icon="🔄")
+
 with st.spinner("Building model DAG..."):
     dag_key = model_dag_cache_key(project)
-    graph = cached_build_model_dag(str(resolved_path), manifest_mtime(resolved_path), dag_key)
+    graph = cached_build_model_dag(
+        str(resolved_path), manifest_mtime(resolved_path), dag_key, selected_group
+    )
 
 model_dag_warnings = graph.graph.get("model_dag_warnings", [])
 if model_dag_warnings:
@@ -61,18 +74,21 @@ if graph.number_of_nodes() == 0:
 
 # The component's own pan/zoom/selection state lives in session_state so
 # it survives reruns (e.g. clicking a node) -- but it must be rebuilt
-# whenever the underlying graph changes, or a previous project's stale
-# nodes/edges would linger. dag_key already changes whenever anything
-# build_model_dag() reads (SQL, ref()s, or metadata) does, so comparing
-# against the last key used to build model_dag_state is enough.
+# whenever the underlying graph OR the group selection changes, or a
+# previous project's (or a previous group's) stale nodes/edges would
+# linger. dag_key changes whenever anything build_model_dag() reads (SQL,
+# ref()s, or metadata) does; selected_group is folded in too since
+# cached_build_model_dag() is keyed on it but dag_key alone isn't (it's
+# computed from the *unfiltered* project).
+flow_key = (dag_key, selected_group)
 if (
     "model_dag_state" not in st.session_state
-    or st.session_state.get("model_dag_state_key") != dag_key
+    or st.session_state.get("model_dag_state_key") != flow_key
 ):
     theme_base = st.get_option("theme.base") or "light"
     nodes, edges = build_model_dag_flow_elements(graph, theme_base)
     st.session_state.model_dag_state = StreamlitFlowState(nodes, edges)
-    st.session_state.model_dag_state_key = dag_key
+    st.session_state.model_dag_state_key = flow_key
 
 graph_col, panel_col = st.columns([3, 1])
 
