@@ -13,9 +13,11 @@ from __future__ import annotations
 import networkx as nx
 
 from dbt_feature_lineage.domain.lineage import ColumnNode
+from dbt_feature_lineage.domain.models import QueryFlowStep
 from dbt_feature_lineage.ui.flow_rendering import (
     build_column_lineage_flow_elements,
     build_model_dag_flow_elements,
+    build_query_flow_elements,
 )
 
 
@@ -210,3 +212,142 @@ def test_build_column_lineage_flow_elements_shares_the_model_dag_palette() -> No
     model_nodes, _ = build_model_dag_flow_elements(_graph())
 
     assert column_nodes[0].style == model_nodes[0].style
+
+
+# ---------------------------------------------------------------------------
+# build_query_flow_elements() -- v0.6's per-model Query Flow diagram
+# (docs/v0.6-plan.md Bölüm 4). Consumes build_query_flow_steps()'s
+# QueryFlowStep list, not an nx.DiGraph -- the third distinct conversion
+# in this module, same shared palette/selectable=True/theme contract as
+# the other two.
+# ---------------------------------------------------------------------------
+
+
+def _query_flow_steps() -> list[QueryFlowStep]:
+    return [
+        QueryFlowStep(step_id="source:stg_customers", step_type="source", name="stg_customers"),
+        QueryFlowStep(
+            step_id="cte:joined",
+            step_type="cte",
+            name="joined",
+            upstream_step_ids=["source:stg_customers"],
+            join_types=["LEFT"],
+            has_where_clause=True,
+            group_by_columns=["customer_id"],
+        ),
+        QueryFlowStep(
+            step_id="final_select",
+            step_type="final_select",
+            name="final_select",
+            upstream_step_ids=["cte:joined"],
+        ),
+        QueryFlowStep(
+            step_id="output",
+            step_type="output",
+            name="mart_customers",
+            upstream_step_ids=["final_select"],
+        ),
+    ]
+
+
+def test_build_query_flow_elements_one_node_per_step() -> None:
+    nodes, _edges = build_query_flow_elements(_query_flow_steps())
+
+    assert {node.id for node in nodes} == {
+        "source:stg_customers",
+        "cte:joined",
+        "final_select",
+        "output",
+    }
+
+
+def test_build_query_flow_elements_nodes_are_selectable() -> None:
+    # Same reasoning as build_model_dag_flow_elements's selectable test --
+    # without this, clicking a step node never updates the detail panel
+    # (verified against a real browser during v0.5 development).
+    nodes, _edges = build_query_flow_elements(_query_flow_steps())
+
+    assert all(node.selectable for node in nodes)
+
+
+def test_build_query_flow_elements_one_edge_per_upstream_link() -> None:
+    _nodes, edges = build_query_flow_elements(_query_flow_steps())
+
+    edge_pairs = {(edge.source, edge.target) for edge in edges}
+    assert edge_pairs == {
+        ("source:stg_customers", "cte:joined"),
+        ("cte:joined", "final_select"),
+        ("final_select", "output"),
+    }
+
+
+def test_build_query_flow_elements_edge_direction_is_upstream_to_step() -> None:
+    _nodes, edges = build_query_flow_elements(_query_flow_steps())
+
+    joined_edge = next(edge for edge in edges if edge.target == "cte:joined")
+    assert joined_edge.source == "source:stg_customers"
+
+
+def test_build_query_flow_elements_step_with_multiple_upstream_ids_gets_multiple_edges() -> None:
+    steps = [
+        QueryFlowStep(step_id="cte:a", step_type="cte", name="a"),
+        QueryFlowStep(step_id="cte:b", step_type="cte", name="b"),
+        QueryFlowStep(
+            step_id="cte:joined",
+            step_type="cte",
+            name="joined",
+            upstream_step_ids=["cte:a", "cte:b"],
+        ),
+    ]
+
+    _nodes, edges = build_query_flow_elements(steps)
+
+    joined_edges = [edge for edge in edges if edge.target == "cte:joined"]
+    assert {edge.source for edge in joined_edges} == {"cte:a", "cte:b"}
+
+
+def test_build_query_flow_elements_cte_node_content_shows_join_filter_group_by_badges() -> None:
+    nodes, _edges = build_query_flow_elements(_query_flow_steps())
+
+    joined_node = next(node for node in nodes if node.id == "cte:joined")
+    content = joined_node.data["content"]
+    assert "joined" in content
+    assert "join" in content.lower()
+    assert "filter" in content.lower()
+    assert "group by" in content.lower()
+
+
+def test_build_query_flow_elements_source_node_content_has_no_badges() -> None:
+    nodes, _edges = build_query_flow_elements(_query_flow_steps())
+
+    source_node = next(node for node in nodes if node.id == "source:stg_customers")
+    assert "stg_customers" in source_node.data["content"]
+
+
+def test_build_query_flow_elements_output_node_content_includes_model_name() -> None:
+    nodes, _edges = build_query_flow_elements(_query_flow_steps())
+
+    output_node = next(node for node in nodes if node.id == "output")
+    assert "mart_customers" in output_node.data["content"]
+
+
+def test_build_query_flow_elements_empty_steps_returns_empty_lists() -> None:
+    nodes, edges = build_query_flow_elements([])
+
+    assert nodes == []
+    assert edges == []
+
+
+def test_build_query_flow_elements_dark_theme_uses_a_different_palette() -> None:
+    light_nodes, light_edges = build_query_flow_elements(_query_flow_steps(), theme_base="light")
+    dark_nodes, dark_edges = build_query_flow_elements(_query_flow_steps(), theme_base="dark")
+
+    assert light_nodes[0].style != dark_nodes[0].style
+    assert light_edges[0].style != dark_edges[0].style
+
+
+def test_build_query_flow_elements_shares_the_model_dag_palette() -> None:
+    query_flow_nodes, _ = build_query_flow_elements(_query_flow_steps())
+    model_nodes, _ = build_model_dag_flow_elements(_graph())
+
+    assert query_flow_nodes[0].style == model_nodes[0].style

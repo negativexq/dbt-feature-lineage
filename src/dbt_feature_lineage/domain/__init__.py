@@ -8,6 +8,7 @@ from .models import (
     DbtProject,
     DbtSource,
     DbtSourceTable,
+    QueryFlowStep,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "DbtProject",
     "DbtSource",
     "DbtSourceTable",
+    "QueryFlowStep",
 ]

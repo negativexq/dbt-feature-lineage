@@ -466,6 +466,98 @@ def test_model_explorer_no_group_filter_shows_every_model(
 
 
 # ---------------------------------------------------------------------------
+# Model Explorer: Query Flow tab (v0.6) -- a streamlit_flow diagram fed by
+# build_query_flow_steps()/build_query_flow_elements(), replacing the old
+# st.code(build_model_flow_lines(...)) + empty CTE expanders. Same
+# "assert on the component's json_args, not the component itself" strategy
+# as the Model DAG tests above (docs/v0.5-plan.md Bölüm 8) -- AppTest
+# can't simulate a node click, so the click -> panel-update behavior is
+# covered by test_ui_rendering.py's render_query_flow_step_panel() tests
+# instead, not here.
+# ---------------------------------------------------------------------------
+
+
+def _select_model(at: AppTest, label_substring: str) -> AppTest:
+    radio = at.radio(key="model_explorer_model_picker")
+    label = next(option for option in radio.options if label_substring in option)
+    return radio.set_value(label).run()
+
+
+def test_model_explorer_query_flow_tab_sends_one_node_per_step(
+    sample_project_path: Path,
+) -> None:
+    at = _run_model_explorer_page(sample_project_path)
+    _select_model(at, "mart_customer_features")
+
+    payload = _component_payload(at)
+    node_ids = {node["id"] for node in payload["nodes"]}
+    assert "source:stg_customers" in node_ids
+    assert "cte:joined" in node_ids
+    assert "cte:final" in node_ids
+    assert "final_select" in node_ids
+    assert "output" in node_ids
+
+
+def test_model_explorer_query_flow_tab_edges_match_cte_upstream_links(
+    sample_project_path: Path,
+) -> None:
+    at = _run_model_explorer_page(sample_project_path)
+    _select_model(at, "mart_customer_features")
+
+    payload = _component_payload(at)
+    edge_pairs = {(edge["source"], edge["target"]) for edge in payload["edges"]}
+    assert ("cte:joined", "cte:final") in edge_pairs
+    assert ("final_select", "output") in edge_pairs
+
+
+def test_model_explorer_query_flow_tab_cte_node_shows_join_badge(
+    sample_project_path: Path,
+) -> None:
+    at = _run_model_explorer_page(sample_project_path)
+    _select_model(at, "mart_customer_features")
+
+    payload = _component_payload(at)
+    joined_node = next(n for n in payload["nodes"] if n["id"] == "cte:joined")
+    assert "join" in joined_node["data"]["content"].lower()
+
+
+def test_model_explorer_query_flow_tab_switches_diagram_on_model_change(
+    sample_project_path: Path,
+) -> None:
+    at = _run_model_explorer_page(sample_project_path)
+    _select_model(at, "stg_customers")
+
+    payload = _component_payload(at)
+    node_ids = {node["id"] for node in payload["nodes"]}
+    # stg_customers's own CTEs (source_customers/renamed), not
+    # mart_customer_features's -- proves the diagram actually rebuilt
+    # rather than reusing the previously selected model's stale state.
+    assert "cte:renamed" in node_ids
+    assert "cte:joined" not in node_ids
+
+
+def test_model_explorer_query_flow_tab_default_panel_prompts_to_click_a_node(
+    sample_project_path: Path,
+) -> None:
+    at = _run_model_explorer_page(sample_project_path)
+    _select_model(at, "mart_customer_features")
+
+    assert any("click a node" in caption.value.lower() for caption in at.caption)
+
+
+def test_model_explorer_query_flow_tab_no_longer_shows_the_old_flat_summary(
+    sample_project_path: Path,
+) -> None:
+    # Regression guard for the v0.5 -> v0.6 tab replacement: the old
+    # "CTE details" subheader + one st.expander per CTE name are gone.
+    at = _run_model_explorer_page(sample_project_path)
+    _select_model(at, "mart_customer_features")
+
+    assert not any("CTE details" in subheader.value for subheader in at.subheader)
+    assert not any("Join summary" in subheader.value for subheader in at.subheader)
+
+
+# ---------------------------------------------------------------------------
 # Column Lineage page
 # ---------------------------------------------------------------------------
 

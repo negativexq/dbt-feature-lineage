@@ -130,3 +130,31 @@ class DbtModelAnalysis(BaseModel):
     window_functions: list[str] = Field(default_factory=list)
     output_columns: list[DbtOutputColumn] = Field(default_factory=list)
     parsing_warnings: list[str] = Field(default_factory=list)
+
+
+QueryFlowStepType = Literal["source", "cte", "final_select", "output"]
+
+
+class QueryFlowStep(BaseModel):
+    """One node in a per-model query-flow diagram (v0.6).
+
+    Unlike DbtModelAnalysis's flat, category-wide lists (all joins in the
+    whole model, all group-by columns in the whole model, etc. -- see
+    docs/v0.6-plan.md Bölüm 1), each step carries only what belongs to
+    *itself*: a CTE's own join/filter/aggregation/output columns, not the
+    model's as a whole. "source" steps (a ref()'d model or source()
+    table) and the closing "output" step carry no join/filter/aggregation
+    of their own -- those fields stay at their defaults for those two
+    step_types.
+    """
+
+    step_id: str
+    step_type: QueryFlowStepType
+    name: str
+    upstream_step_ids: list[str] = Field(default_factory=list)
+    join_types: list[str] = Field(default_factory=list)
+    has_where_clause: bool = False
+    group_by_columns: list[str] = Field(default_factory=list)
+    aggregate_functions: list[str] = Field(default_factory=list)
+    window_functions: list[str] = Field(default_factory=list)
+    output_columns: list[DbtOutputColumn] = Field(default_factory=list)
