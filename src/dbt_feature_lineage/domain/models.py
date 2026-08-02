@@ -45,6 +45,10 @@ class DbtModel(BaseModel):
     database: str | None = None
     schema_name: str | None = Field(default=None, alias="schema")
     alias: str | None = None
+    description: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    owner: str | None = None
+    test_count: int = 0
 
     model_config = ConfigDict(populate_by_name=True)
 

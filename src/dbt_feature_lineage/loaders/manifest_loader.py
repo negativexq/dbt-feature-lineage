@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -78,6 +79,8 @@ def _validate_schema_version(dbt_schema_version: str) -> None:
 
 
 def _parse_models(nodes: dict[str, Any], project_root: Path) -> list[DbtModel]:
+    test_counts = _count_tests_by_model(nodes)
+
     models: list[DbtModel] = []
     for node in nodes.values():
         if node.get("resource_type") != "model":
@@ -101,9 +104,33 @@ def _parse_models(nodes: dict[str, Any], project_root: Path) -> list[DbtModel]:
                 database=node.get("database"),
                 schema_name=node.get("schema"),
                 alias=node.get("alias"),
+                description=node.get("description") or None,
+                tags=node.get("tags") or [],
+                owner=(node.get("meta") or {}).get("owner"),
+                test_count=test_counts.get(node["name"], 0),
             )
         )
     return sorted(models, key=lambda model: model.name)
+
+
+def _count_tests_by_model(nodes: dict[str, Any]) -> dict[str, int]:
+    """Map model name -> number of dbt tests that depend on it.
+
+    Unlike description/tags/meta (attributes of the model's own node),
+    tests are separate top-level nodes (resource_type == "test") that
+    reference their subject via depends_on.nodes -- there is no "tests"
+    list directly on a model node to read.
+    """
+
+    counts: dict[str, int] = defaultdict(int)
+    for node in nodes.values():
+        if node.get("resource_type") != "test":
+            continue
+        for dependency_unique_id in node.get("depends_on", {}).get("nodes", []):
+            parts = dependency_unique_id.split(".")
+            if parts[0] == "model":
+                counts[parts[-1]] += 1
+    return counts
 
 
 def _parse_dependencies(node: dict[str, Any]) -> tuple[list[DbtDependency], list[DbtDependency]]:
