@@ -7,6 +7,7 @@ from .rendering import (
     filter_models,
     filter_output_columns,
     group_models_by_layer,
+    render_node_detail_panel,
     summarize_model_analysis,
 )
 
@@ -17,5 +18,6 @@ __all__ = [
     "filter_models",
     "filter_output_columns",
     "group_models_by_layer",
+    "render_node_detail_panel",
     "summarize_model_analysis",
 ]

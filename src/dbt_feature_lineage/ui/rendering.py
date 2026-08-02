@@ -11,6 +11,7 @@ from dbt_feature_lineage.domain.models import (
     DbtModel,
     DbtModelAnalysis,
     DbtOutputColumn,
+    DbtProject,
 )
 
 _ARTIFACT_STATUS_MESSAGES: dict[str, str] = {
@@ -148,6 +149,44 @@ def build_lineage_dot(subgraph: nx.DiGraph) -> str:
 
 def _dot_escape(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def render_node_detail_panel(project: DbtProject, model_name: str) -> dict[str, str]:
+    """Build the Model DAG right-hand detail panel's content for one model.
+
+    A plain function returning label -> value, not a Streamlit render call,
+    so it can be unit tested independently of streamlit_flow -- AppTest
+    can't simulate a node click (no real JS runtime executes, so a custom
+    component's return value never changes -- see docs/v0.5-plan.md
+    Bölüm 8, verified via a sandbox spike), so this is the only way the
+    "click a node -> panel updates" logic gets tested at all. The caller
+    (pages/model_dag.py) is responsible for turning this dict into
+    `st.write`/`st.markdown` calls.
+
+    Fields with nothing to show (owner/description/tags unset, static
+    mode, or a dbt project that simply never documented this model) are
+    left out of the returned dict entirely -- not a scope/coverage
+    problem worth a schema_warnings-style warning, just this model having
+    less metadata than another one.
+    """
+
+    model = next((m for m in project.models if m.name == model_name), None)
+    if model is None:
+        return {}
+
+    panel: dict[str, str] = {"Model": model.name, "Layer": model.layer}
+    if model.materialization:
+        panel["Materialization"] = model.materialization
+    if model.description:
+        panel["Description"] = model.description
+    if model.tags:
+        panel["Tags"] = ", ".join(model.tags)
+    if model.owner:
+        panel["Owner"] = model.owner
+    if model.test_count:
+        panel["Tests"] = str(model.test_count)
+
+    return panel
 
 
 def summarize_model_analysis(analysis: DbtModelAnalysis) -> dict[str, int]:
