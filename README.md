@@ -27,6 +27,7 @@ Large dbt projects can contain many models, CTEs, joins, transformations, and fe
 - Cross-model column-level lineage: traces a column back through joins, coalesces, and renames to its raw source(s) — or forward to its downstream consumers — via a project-wide `networkx` graph
 - `lineage` CLI command and a dedicated "Column Lineage" Streamlit page for searching a column by name and viewing its upstream/downstream chain as an interactive graph
 - Model DAG: a project-wide model-level dependency graph (materialization, column count per node; owner/tests/description/tags on click) — both this and Column Lineage render via the same `streamlit-flow-component` (React Flow) interactive graph, with zoom/pan/minimap
+- Shared "Select Project" page: scans a root directory for dbt projects and lets you pick one project and (optionally) one model group once — Model Explorer, Model DAG, and Column Lineage all read that same shared selection instead of asking for a project path or group individually
 
 ## Demo project
 
@@ -67,11 +68,11 @@ flowchart LR
 ```text
 dbt-feature-lineage/
 ├── app.py
-├── pages/                    # model_explorer.py, model_dag.py, column_lineage.py
+├── pages/                    # select_project.py, model_explorer.py, model_dag.py, column_lineage.py
 ├── src/dbt_feature_lineage/
 │   ├── cli.py
 │   ├── domain/
-│   ├── loaders/
+│   ├── loaders/              # incl. project_discovery.py (dbt project root scan)
 │   ├── parsers/
 │   ├── scanners/
 │   ├── services/             # incl. lineage_service.py, model_dag_service.py
@@ -138,7 +139,9 @@ docker compose run --rm app dbt-feature-lineage lineage examples/sample_banking_
 
 ## Web interface
 
-The Streamlit application defaults to `examples/sample_banking_dbt` and has three pages, selectable from the sidebar navigation.
+The Streamlit application has four pages, selectable from the sidebar navigation, with **Select Project** as the default landing page.
+
+**Select Project** — enter a root directory (defaults to `examples`) to recursively scan for dbt projects (any directory containing a `dbt_project.yml`), pick one from the discovered list, and optionally narrow it down to a single model group (domain). This selection is written once to shared session state; the other three pages read it rather than asking for a project path (or, for Model DAG and Column Lineage, a group filter) individually. Each page shows the currently active project/group in its header with a "Change" link back to Select Project, and prompts you to pick a project first if none has been selected yet.
 
 **Model Explorer** — select a single model and dig into it via four tabs:
 
@@ -147,9 +150,9 @@ The Streamlit application defaults to `examples/sample_banking_dbt` and has thre
 - **Columns:** output expressions, transformation types, referenced input columns, and selected-column details
 - **Raw SQL:** original SQL and the preprocessed SQL sent to sqlglot
 
-**Model DAG** — independent of Model Explorer's model selection; the whole project's model-level `ref()`/`source()` dependency graph, rendered interactively (zoom/pan/minimap) via `streamlit-flow-component`. Each node shows materialization and column count; clicking a node opens a detail panel with owner, test count, description, and tags (fields left blank when the manifest — or static mode — doesn't have them).
+**Model DAG** — independent of Model Explorer's model selection; the whole project's (or, if a model group was picked on Select Project, that group's) model-level `ref()`/`source()` dependency graph, rendered interactively (zoom/pan/minimap) via `streamlit-flow-component`. Each node shows materialization and column count; clicking a node opens a detail panel with owner, test count, description, and tags (fields left blank when the manifest — or static mode — doesn't have them).
 
-**Column Lineage** — independent of Model Explorer's model selection; searches the whole project by column name and renders the matching column's upstream or downstream chain as the same interactive graph component Model DAG uses, for a consistent visual language between the two.
+**Column Lineage** — independent of Model Explorer's model selection; searches the project (or the selected model group) by column name and renders the matching column's upstream or downstream chain as the same interactive graph component Model DAG uses, for a consistent visual language between the two. When a model group is selected on Select Project, the lineage trace itself is scoped to that group, not just the search results.
 
 <!-- Add screenshot: docs/images/model-overview.png -->
 
