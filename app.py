@@ -22,6 +22,7 @@ pages = st.navigation(
         st.Page("pages/model_explorer.py", title="Model Explorer"),
         st.Page("pages/model_dag.py", title="Model DAG"),
         st.Page("pages/column_lineage.py", title="Column Lineage"),
+        st.Page("pages/feature_explorer.py", title="Feature Explorer"),
     ]
 )
 pages.run()
