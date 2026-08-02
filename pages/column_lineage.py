@@ -37,6 +37,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pandas as pd
 import streamlit as st
 from streamlit_flow import streamlit_flow
 from streamlit_flow.layouts import LayeredLayout
@@ -46,6 +47,7 @@ from dbt_feature_lineage.services.column_search import (
     build_search_index,
     get_downstream_chain,
     get_upstream_chain,
+    summarize_downstream_impact,
 )
 from dbt_feature_lineage.services.lineage_service import lineage_cache_key
 from dbt_feature_lineage.ui.flow_rendering import build_column_lineage_flow_elements
@@ -172,3 +174,27 @@ elif matches:
             height=800 if large_view else 450,
         )
         st.session_state.column_lineage_state = new_state
+
+        # Downstream Impact Analysis (v0.8): a model-grouped summary of
+        # the SAME chain the graph above already renders -- built on
+        # get_downstream_chain()'s existing output, not a new lineage
+        # computation (docs/v0.8-plan.md Bölüm 1/4), so no extra
+        # cache/spinner is needed here. Only meaningful for the
+        # downstream direction -- a column's own upstream sources aren't
+        # an "impact" (docs/v0.8-plan.md Hedef).
+        if not is_upstream:
+            st.subheader("Downstream impact")
+            impact_summary = summarize_downstream_impact(lineage_graph, target, chain)
+
+            metric_col, _spacer_col = st.columns([1, 3])
+            with metric_col:
+                inner_left, inner_right = st.columns(2)
+                inner_left.metric("Affected models", impact_summary.affected_model_count)
+                inner_right.metric("Affected columns", impact_summary.affected_column_count)
+
+            if impact_summary.affected_model_count:
+                rows = [
+                    {"Model": impact.model, "Columns": ", ".join(impact.columns)}
+                    for impact in impact_summary.all_impacted
+                ]
+                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
