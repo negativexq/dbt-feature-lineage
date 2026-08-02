@@ -1,0 +1,56 @@
+version: 2
+
+sources:
+  - name: retail_raw
+    description: Raw retail order-management tables.
+    database: retail_dev
+    schema: raw_retail
+    tables:
+      - name: orders
+        description: Raw customer order headers.
+        columns:
+          - name: order_id
+            description: Unique order identifier.
+          - name: customer_id
+            description: Customer who placed the order.
+          - name: order_date
+            description: Date the order was placed.
+          - name: order_status
+            description: Current order fulfillment status.
+      - name: products
+        description: Raw product catalog records.
+        columns:
+          - name: product_id
+            description: Unique product identifier.
+          - name: product_name
+            description: Display name of the product.
+          - name: category
+            description: Merchandising category.
+          - name: unit_price
+            description: List price per unit.
+
+  - name: lending_raw
+    description: Raw lending/underwriting source tables.
+    database: lending_dev
+    schema: raw_lending
+    tables:
+      - name: loan_applications
+        description: Raw loan application submissions.
+        columns:
+          - name: application_id
+            description: Unique application identifier.
+          - name: borrower_id
+            description: Applicant borrower identifier.
+          - name: requested_amount
+            description: Amount requested by the applicant.
+          - name: application_status
+            description: Current application status.
+      - name: borrowers
+        description: Raw borrower profile records.
+        columns:
+          - name: borrower_id
+            description: Unique borrower identifier.
+          - name: credit_score
+            description: Latest bureau credit score.
+          - name: annual_income
+            description: Self-reported annual income.

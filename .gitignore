@@ -15,4 +15,5 @@ logs/
 .env
 profiles.yml
 !examples/sample_banking_dbt/profiles.yml
+!examples/multi_domain_dbt/profiles.yml
 .DS_Store

@@ -1,0 +1,31 @@
+name: multi_domain_dbt
+version: 1.0.0
+config-version: 2
+
+profile: multi_domain_dbt
+
+model-paths:
+  - models
+
+target-path: target
+clean-targets:
+  - target
+  - dbt_packages
+
+models:
+  multi_domain_dbt:
+    +materialized: view
+    retail:
+      staging:
+        +materialized: view
+      intermediate:
+        +materialized: table
+      marts:
+        +materialized: table
+    lending:
+      staging:
+        +materialized: view
+      intermediate:
+        +materialized: table
+      marts:
+        +materialized: table
