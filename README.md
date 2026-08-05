@@ -161,6 +161,13 @@ The Streamlit application has five pages, selectable from the sidebar navigation
 
 The MVP does not execute arbitrary dbt macros.
 
+## Compatibility
+
+Verified against dbt-core 1.12:
+
+- **`--use-v2-parser` (Fusion/Rust parser):** the `depends_on.nodes` field this tool reads for `ref()` dependencies is identical between the v1 and v2 parser output; ran `analyze`/`inspect`/`lineage --impact` directly against a v2-parser-generated manifest with no issues ([details](https://github.com/negativexq/dbt-feature-lineage/issues/9)).
+- **`on_error: continue`:** a `dbt run`/`dbt build` execution-time setting only — has no effect on `dbt parse`'s manifest.json output, the only artifact this tool reads ([details](https://github.com/negativexq/dbt-feature-lineage/issues/10)).
+
 ## Limitations
 
 - There is no dbt Cloud, Airflow, or warehouse integration.
