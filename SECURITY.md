@@ -2,17 +2,13 @@
 
 ## Reporting a vulnerability
 
-This repository does not currently have GitHub's private vulnerability
-reporting enabled, and there is no dedicated security email address. Please
-**do not open a public GitHub issue** for a suspected security vulnerability.
-
-Until private reporting is enabled, the safest option is to open a
-[GitHub issue](https://github.com/negativexq/dbt-feature-lineage/issues) with
-minimal detail (e.g. "possible security issue, will share details privately")
-and no proof-of-concept or exploit details, and note in it that you'd like to
-coordinate a private disclosure. The maintainer ([@negativexq](https://github.com/negativexq))
-will follow up to arrange a private channel. If you'd rather not do even that,
-reaching out through the maintainer's GitHub profile is the next-best option.
+This repository has GitHub's private vulnerability reporting enabled. Please
+**do not open a public GitHub issue** for a suspected security vulnerability —
+instead, use
+[Report a vulnerability](https://github.com/negativexq/dbt-feature-lineage/security/advisories/new)
+(also available under the repository's "Security" tab) to open a private
+security advisory. This reaches the maintainer directly without disclosing
+details publicly.
 
 Ordinary bugs (parsing errors, incorrect lineage output, UI issues, etc.) that
 don't have security impact should go through the normal

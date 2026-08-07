@@ -59,11 +59,10 @@ spaces.
 
 This project does not currently have a dedicated private email address for
 reports. Instances of abusive, harassing, or otherwise unacceptable behavior
-should be reported by opening a [GitHub issue](https://github.com/negativexq/dbt-feature-lineage/issues)
-or, if the report itself is sensitive and shouldn't be public, by contacting
-the repository owner ([@negativexq](https://github.com/negativexq)) directly
-through their GitHub profile. All complaints will be reviewed and investigated
-promptly and fairly.
+should be reported directly to the repository owner
+([@negativexq](https://github.com/negativexq)) through their GitHub profile,
+rather than a public GitHub issue. All complaints will be reviewed and
+investigated promptly and fairly.
 
 All community leaders are obligated to respect the privacy and security of the
 reporter of any incident.
