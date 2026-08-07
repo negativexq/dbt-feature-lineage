@@ -1,0 +1,68 @@
+name: Feature request
+description: Suggest an improvement to the CLI, the Streamlit UI, or the underlying analysis.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion. The more concrete the problem/use case, the easier it is to evaluate.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / use case
+      description: What are you trying to do, and what's missing or awkward about doing it today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-behavior
+    attributes:
+      label: Proposed behavior
+      description: What should happen instead? Be as concrete as you can (a CLI flag, a new page, a change to existing output, etc.).
+    validations:
+      required: true
+
+  - type: textarea
+    id: example-workflow
+    attributes:
+      label: Example workflow
+      description: Walk through how you'd actually use this — a CLI command you'd run, or the steps you'd take in the UI.
+      placeholder: |
+        dbt-feature-lineage lineage my_project some_column --direction downstream --impact --format=csv
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any workarounds you're using today, or other approaches you considered.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: subsystem
+    attributes:
+      label: What does this affect?
+      multiple: true
+      options:
+        - CLI
+        - Streamlit UI
+        - Static/manifest parsing (loaders, parsers, scanners)
+        - Column-level lineage
+        - Downstream impact analysis
+        - Model DAG / Query Flow visualization
+        - Documentation
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Anything else — links, screenshots, related issues.
+    validations:
+      required: false

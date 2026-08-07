@@ -1,0 +1,115 @@
+name: Bug report
+description: Something isn't working as expected in the CLI or the Streamlit UI.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please fill in as much of this as you can — it's the fastest way to get it fixed.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Short description
+      description: A concise summary of the problem.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The exact commands you ran, or the exact steps you took in the Streamlit UI (which page, what you selected/typed).
+      placeholder: |
+        1. `docker compose run --rm app dbt-feature-lineage lineage examples/sample_banking_dbt customer_id --direction downstream --impact`
+        2. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Manifest mode or static-analysis mode?
+      description: Was a `target/manifest.json` present for the project (manifest mode), or was it analyzed via static SQL parsing?
+      options:
+        - Manifest mode (target/manifest.json present)
+        - Static-analysis mode (no manifest)
+        - Not sure
+        - Not applicable
+    validations:
+      required: true
+
+  - type: input
+    id: dbt-version
+    attributes:
+      label: dbt Core version
+      description: Output of `dbt --version`, if relevant (e.g. if this only reproduces against a real project, not the bundled examples).
+      placeholder: "1.12.0"
+    validations:
+      required: false
+
+  - type: input
+    id: python-version
+    attributes:
+      label: Python version
+      description: Only relevant if you're not running via the provided Docker setup.
+      placeholder: "3.12.x"
+    validations:
+      required: false
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "macOS 15, Ubuntu 24.04, Windows 11 + WSL2, ..."
+    validations:
+      required: false
+
+  - type: textarea
+    id: sql-example
+    attributes:
+      label: Relevant SQL/dbt example (if applicable)
+      description: A minimal model SQL snippet or project structure that reproduces the issue. This helps enormously for parsing/lineage bugs.
+      render: sql
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / traceback
+      description: Full error output or traceback. This will be rendered as a code block, so no need to add your own backticks.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Anything else that might be relevant (project size, unusual dbt project layout, custom macros, etc.).
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: sensitive-info
+    attributes:
+      label: Confirmation
+      options:
+        - label: I've removed any credentials, real warehouse connection details, or other sensitive information from the SQL, logs, and traceback above.
+          required: true

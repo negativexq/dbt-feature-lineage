@@ -218,6 +218,8 @@ The project uses Python 3.12, Typer, Rich, Pydantic, PyYAML, sqlglot, Streamlit,
 
 Open an issue or pull request with a focused change, tests for behavior changes, and documentation updates where applicable. Keep the local static-analysis scope intact and avoid committing generated artifacts or credentials.
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development workflow, and please follow the [Code of Conduct](CODE_OF_CONDUCT.md). Use the [bug report](https://github.com/negativexq/dbt-feature-lineage/issues/new?template=bug_report.yml) or [feature request](https://github.com/negativexq/dbt-feature-lineage/issues/new?template=feature_request.yml) template when opening an issue. Security issues should go through [SECURITY.md](SECURITY.md) instead of a public issue.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
