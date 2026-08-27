@@ -3,6 +3,8 @@ version: 2
 models:
   - name: stg_customers
     description: Standardized customer dimension from the raw core banking customer table.
+    meta:
+      owner: core-banking-data-team
     columns:
       - name: customer_id
         description: Surrogate-ready customer key.

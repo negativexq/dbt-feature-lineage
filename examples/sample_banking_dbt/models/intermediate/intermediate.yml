@@ -3,6 +3,8 @@ version: 2
 models:
   - name: int_customer_daily_balance
     description: Daily estimated balance snapshots and 30 day rolling balance metrics by customer.
+    meta:
+      owner: feature-platform-team
     columns:
       - name: customer_id
         description: Customer key.
@@ -28,6 +30,8 @@ models:
         description: Most recent transaction date.
   - name: int_customer_credit_profile
     description: Customer credit profile combining loans and revolving credit usage.
+    meta:
+      owner: risk-analytics
     columns:
       - name: customer_id
         description: Customer key.

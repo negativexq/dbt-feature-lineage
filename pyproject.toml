@@ -23,11 +23,25 @@ dependencies = [
   "pydantic>=2",
   "pyyaml",
   "sqlglot",
+  # Already pulled in transitively by dbt-core, but sql_parser.py imports
+  # it directly to actually render dbt Jinja ({% set %}/{% for %} control
+  # flow, not just {{ ref() }}/{{ source() }} calls) instead of leaving
+  # it to whatever version dbt-core's own resolver happens to land on.
+  "jinja2",
   "networkx",
   "streamlit",
   "streamlit-flow-component",
   "typer",
   "rich",
+  # New web backend (src/dbt_feature_lineage/api/), replacing the Streamlit
+  # UI -- pinned to a minimum version deliberately: this project has hit
+  # two real regressions from unpinned dependencies drifting underneath it
+  # (pydantic silently downgraded via dbt-core's own pin, and Streamlit's
+  # AppTest.from_file() changing its relative-path resolution semantics in
+  # a later release), so new dependencies get a floor from day one instead
+  # of learning the same lesson a third time.
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.34",
 ]
 
 [project.scripts]

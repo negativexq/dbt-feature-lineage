@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 import networkx as nx
 
 from dbt_feature_lineage.domain.lineage import ColumnNode
-from dbt_feature_lineage.domain.models import DbtProject, Layer
+from dbt_feature_lineage.domain.models import DbtExposure, DbtProject, Layer
 from dbt_feature_lineage.services.schema_builder import build_project_schema
 
 
@@ -143,6 +143,23 @@ class ModelImpact:
 
 
 @dataclass
+class ExposureImpact:
+    """One dbt exposure (a dashboard, ML model, or app registered via
+    `exposures:`) caught in a downstream impact chain, plus which of the
+    affected models it actually depends on -- e.g. changing a column
+    that only reaches one of an exposure's three source models still
+    names that exposure, but the `via_models` list is what tells a
+    reviewer whether this is the exposure's whole input or a fraction
+    of it."""
+
+    name: str
+    exposure_type: str | None
+    owner: str | None
+    url: str | None
+    via_models: list[str]
+
+
+@dataclass
 class DownstreamImpactSummary:
     """Model-grouped view of a get_downstream_chain() result (v0.8).
 
@@ -155,12 +172,20 @@ class DownstreamImpactSummary:
     column count (ties broken alphabetically by model name) -- the
     model with the most affected columns is the one most worth a
     reviewer's attention first.
+
+    `affected_exposures` (v0.10) answers the question a model name alone
+    doesn't: not just "which internal models break" but "does a
+    dashboard or ML model someone outside the data team actually
+    relies on break too". Static-mode projects (no manifest, so no
+    DbtExposure data at all) always get an empty list here, same as
+    every other manifest-only field in this codebase.
     """
 
     affected_model_count: int
     affected_column_count: int
     direct: list[ModelImpact]
     all_impacted: list[ModelImpact]
+    affected_exposures: list[ExposureImpact] = field(default_factory=list)
 
 
 def _group_by_model(nodes: list[ColumnNode]) -> list[ModelImpact]:
@@ -173,8 +198,31 @@ def _group_by_model(nodes: list[ColumnNode]) -> list[ModelImpact]:
     return impacts
 
 
+def _affected_exposures(
+    exposures: list[DbtExposure], affected_models: set[str]
+) -> list[ExposureImpact]:
+    impacts = []
+    for exposure in exposures:
+        via_models = [m for m in exposure.depends_on_models if m in affected_models]
+        if via_models:
+            impacts.append(
+                ExposureImpact(
+                    name=exposure.name,
+                    exposure_type=exposure.exposure_type,
+                    owner=exposure.owner,
+                    url=exposure.url,
+                    via_models=via_models,
+                )
+            )
+    impacts.sort(key=lambda impact: impact.name)
+    return impacts
+
+
 def summarize_downstream_impact(
-    graph: nx.DiGraph, target: ColumnNode, chain: list[ColumnNode]
+    graph: nx.DiGraph,
+    target: ColumnNode,
+    chain: list[ColumnNode],
+    exposures: list[DbtExposure] | None = None,
 ) -> DownstreamImpactSummary:
     """Group a get_downstream_chain(graph, target) result by model.
 
@@ -197,10 +245,16 @@ def summarize_downstream_impact(
 
     downstream_nodes = [node for node in chain if node != target]
     direct_nodes = list(graph.successors(target))
+    # The target's own model counts as affected too -- an exposure that
+    # reads straight from target.model, with nothing else in between,
+    # is broken by this change just as surely as one reached through
+    # three downstream models.
+    affected_models = {target.model, *(node.model for node in downstream_nodes)}
 
     return DownstreamImpactSummary(
         affected_model_count=len({node.model for node in downstream_nodes}),
         affected_column_count=len(downstream_nodes),
         direct=_group_by_model(direct_nodes),
         all_impacted=_group_by_model(downstream_nodes),
+        affected_exposures=_affected_exposures(exposures or [], affected_models),
     )

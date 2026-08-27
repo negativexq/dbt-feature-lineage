@@ -1,0 +1,34 @@
+version: 2
+
+models:
+  - name: stg_orders
+    description: Cleaned, typed order records straight from the raw retail source.
+    meta:
+      owner: retail-data-team
+    columns:
+      - name: order_id
+        description: Unique order identifier.
+        tests:
+          - unique
+          - not_null
+
+  - name: int_order_items
+    description: Orders joined with the product each line item refers to.
+    meta:
+      owner: retail-data-team
+    columns:
+      - name: order_id
+        description: Unique order identifier.
+        tests:
+          - not_null
+
+  - name: mart_retail_sales
+    description: Per-customer order volume, spend, and completion rate for the retail sales dashboard.
+    meta:
+      owner: revenue-analytics
+    columns:
+      - name: customer_id
+        description: Unique customer identifier.
+        tests:
+          - unique
+          - not_null

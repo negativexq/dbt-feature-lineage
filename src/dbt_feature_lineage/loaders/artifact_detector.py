@@ -71,6 +71,16 @@ def resolve_dbt_project(
                 str(resolved_path),
                 "--profiles-dir",
                 str(profiles_dir),
+                # dbt's own partial-parse cache (target/partial_parse.msgpack)
+                # can silently miss a YAML-only edit -- a schema.yml
+                # description/owner/test added with no .sql file touched --
+                # and hand back the previous manifest unchanged. Since this
+                # call is exactly the "did my doc/owner edit take?" path
+                # (both the CLI's interactive re-parse prompt and the web
+                # UI's "Generate artifacts"/"re-parse" button), a stale
+                # result here is worse than the extra parse cost of always
+                # doing a full one.
+                "--no-partial-parse",
             ],
             capture_output=True,
             text=True,

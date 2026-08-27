@@ -49,6 +49,7 @@ class DbtModel(BaseModel):
     tags: list[str] = Field(default_factory=list)
     owner: str | None = None
     test_count: int = 0
+    test_unique_ids: list[str] = Field(default_factory=list)
     model_group: str | None = None
 
     model_config = ConfigDict(populate_by_name=True)
@@ -75,6 +76,22 @@ class DbtSource(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class DbtExposure(BaseModel):
+    """A dbt exposure: a downstream consumer registered in the project's
+    own YAML via `exposures:` -- a dashboard, an ML model, an internal
+    application, a notebook -- with `depends_on` pointing at the models
+    it actually reads. Manifest-only: static-mode projects (no `dbt
+    parse` run) get an empty exposures list, same as they get no
+    owner/test data on DbtModel -- not a gap unique to this field."""
+
+    name: str
+    exposure_type: str | None = None
+    owner: str | None = None
+    url: str | None = None
+    description: str | None = None
+    depends_on_models: list[str] = Field(default_factory=list)
+
+
 class ArtifactStatus(BaseModel):
     """Outcome of the manifest-vs-static artifact resolution for a project load."""
 
@@ -94,6 +111,7 @@ class DbtProject(BaseModel):
     yaml_files: list[str] = Field(default_factory=list)
     models: list[DbtModel] = Field(default_factory=list)
     sources: list[DbtSource] = Field(default_factory=list)
+    exposures: list[DbtExposure] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
     source: Literal["manifest", "static"] = "static"
     artifact_status: ArtifactStatus | None = None

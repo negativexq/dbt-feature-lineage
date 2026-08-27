@@ -1,0 +1,35 @@
+version: 2
+
+models:
+  - name: stg_borrowers
+    description: Cleaned, typed borrower records straight from the raw lending source.
+    meta:
+      owner: lending-data-team
+    columns:
+      - name: borrower_id
+        description: Unique borrower identifier.
+        tests:
+          - unique
+          - not_null
+
+  - name: int_loan_underwriting
+    description: Loan applications joined with the borrower's credit profile.
+    meta:
+      owner: lending-data-team
+    columns:
+      - name: application_id
+        description: Unique loan application identifier.
+        tests:
+          - unique
+          - not_null
+
+  - name: mart_default_risk
+    description: Default risk exposure aggregated by risk band, for the lending risk dashboard.
+    meta:
+      owner: risk-analytics
+    columns:
+      - name: risk_band
+        description: The borrower risk band this row summarizes.
+        tests:
+          - unique
+          - not_null

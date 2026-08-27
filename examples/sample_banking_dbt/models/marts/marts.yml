@@ -3,6 +3,8 @@ version: 2
 models:
   - name: mart_customer_features
     description: Primary customer feature mart used as the central feature engineering surface.
+    meta:
+      owner: feature-platform-team
     columns:
       - name: customer_id
         description: Customer key used for downstream feature serving.
@@ -21,6 +23,8 @@ models:
         description: Indicates whether the customer currently shows delinquency signals.
   - name: mart_risk_features
     description: Focused risk scoring mart derived from the main customer feature set.
+    meta:
+      owner: risk-analytics
     columns:
       - name: customer_id
         description: Customer key.
@@ -35,6 +39,8 @@ models:
         description: Heuristic numeric risk score.
   - name: mart_customer_360
     description: Customer 360 view combining profile attributes with high level feature metrics.
+    meta:
+      owner: feature-platform-team
     columns:
       - name: customer_id
         description: Customer key.

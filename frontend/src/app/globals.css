@@ -1,0 +1,134 @@
+@import "tailwindcss";
+/* Google Fonts are loaded via a <link> in layout.tsx's <head> instead of
+   a CSS @import here -- Tailwind v4's own processing reorders this
+   stylesheet such that an @import after its generated rules violates
+   the "@import must precede all other rules" CSS requirement. */
+
+/*
+ * Design tokens -- see docs/v0.9-plan.md for the rationale: dbt's own
+ * staging -> intermediate -> marts model-layer vocabulary is already a
+ * real refinement pipeline (raw source data, worked into shape, refined
+ * into a finished mart), so instead of one arbitrary accent color
+ * decorating everything, that pipeline gets an actual color per layer,
+ * reused everywhere a layer is shown (model badges, every graph's node
+ * color, the Feature Explorer's Layer column) -- denotative, not
+ * decorative, and the same three colors mean the same thing everywhere.
+ * The `marts` color doubles as the one brand accent, since a mart is
+ * deliberately the "finished, valuable" end of that pipeline.
+ */
+:root {
+  --ink-950: #0b0e14; /* page background */
+  --ink-900: #12161f; /* surface / card background */
+  --ink-850: #161b26;
+  --ink-800: #1b212d; /* elevated surface / hover */
+  --line: #262d3b; /* hairline borders */
+  --text-hi: #e7eaf2; /* primary text */
+  --text-lo: #8992a6; /* secondary text / captions */
+
+  --accent: #ff7a45; /* brand/interactive -- same hue as "marts" */
+  --accent-dim: #3a2a22;
+
+  --layer-staging: #6b7a99;
+  --layer-intermediate: #4fa6a0;
+  --layer-marts: #ff7a45;
+  --layer-unknown: #4a5164;
+
+  /* Raw SQL syntax highlighting (components/SqlCode.tsx) -- deliberately
+     its own small palette rather than reusing the layer colors above:
+     those mean a specific pipeline stage everywhere else in the app,
+     and overloading orange/teal with an unrelated "this is a keyword"
+     meaning inside a SQL block would muddy that. */
+  --syntax-keyword: #ff9466;
+  --syntax-string: #7dd8c4;
+  --syntax-number: #e0af68;
+  --syntax-function: #7aa2f7;
+  --syntax-comment: #626b80;
+
+  /* Model health status (Dashboard, Model DAG, Model Explorer) --
+     derived from target/run_results.json, see health_service.py. A
+     fourth, separate semantic scale rather than reusing the layer
+     colors above: "healthy/caution/degraded" is a judgment about a
+     model's last run, unrelated to which pipeline stage it belongs to,
+     and conflating the two would make a staging-layer dot and a
+     test-failure dot compete for the same visual language. */
+  --status-healthy: #4fae7a;
+  --status-caution: #d9a441;
+  --status-degraded: #e2574c;
+  --status-unknown: #4a5164;
+
+  /* --font-display/--font-body/--font-mono are NOT defined here --
+     next/font/google (layout.tsx) sets them on <html> via its own
+     `variable` option, already resolved to the optimized, self-hosted
+     font stack. Redefining them here would just shadow that. */
+}
+
+@theme inline {
+  --color-ink-950: var(--ink-950);
+  --color-ink-900: var(--ink-900);
+  --color-ink-850: var(--ink-850);
+  --color-ink-800: var(--ink-800);
+  --color-line: var(--line);
+  --color-text-hi: var(--text-hi);
+  --color-text-lo: var(--text-lo);
+  --color-accent: var(--accent);
+  --color-accent-dim: var(--accent-dim);
+  --color-layer-staging: var(--layer-staging);
+  --color-layer-intermediate: var(--layer-intermediate);
+  --color-layer-marts: var(--layer-marts);
+  --color-layer-unknown: var(--layer-unknown);
+  --font-display: var(--font-display);
+  --font-body: var(--font-body);
+  --font-mono: var(--font-mono);
+}
+
+body {
+  /* A quiet radial glow anchored top-left, the accent color at very low
+     opacity -- the difference between "flat dark rectangle" and a
+     surface that feels lit, the same trick Linear/Vercel/Raycast lean
+     on instead of a plain solid fill. Fixed (not scroll-repositioned)
+     so it reads as one ambient light source for the whole app, not a
+     per-page decoration. */
+  background:
+    radial-gradient(1100px 560px at 12% -10%, rgba(255, 122, 69, 0.09), transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, rgba(79, 166, 160, 0.06), transparent 55%),
+    var(--ink-950);
+  background-attachment: fixed;
+  color: var(--text-hi);
+  font-family: var(--font-body);
+}
+
+h1, h2, h3 {
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
+}
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-lo);
+}
+
+/* Focus rings: a crisp accent ring instead of the browser default blue
+   outline, applied to whatever's actually focused rather than globally
+   (so a mouse click doesn't show a ring, only real keyboard focus). */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--ink-950);
+}
+
+/* React Flow doesn't inherit page CSS custom properties inside its own
+   node shadow content the way plain DOM does in every case, so a few
+   of its own CSS variables are set explicitly here (documented React
+   Flow theming hooks, not a workaround). */
+.react-flow {
+  --xy-background-color: var(--ink-950);
+  --xy-edge-stroke: var(--text-lo);
+  --xy-edge-stroke-selected: var(--accent);
+}

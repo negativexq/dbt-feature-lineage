@@ -10,6 +10,7 @@ from typing import Any
 
 from dbt_feature_lineage.domain.models import (
     DbtDependency,
+    DbtExposure,
     DbtModel,
     DbtProject,
     DbtSource,
@@ -55,6 +56,7 @@ def load_dbt_project_from_manifest(
 
     models = _parse_models(manifest_data.get("nodes", {}), resolved_path)
     sources = _parse_sources(manifest_data.get("sources", {}))
+    exposures = _parse_exposures(manifest_data.get("exposures", {}))
     model_paths = _infer_model_paths(manifest_data.get("nodes", {}))
 
     return DbtProject(
@@ -64,6 +66,7 @@ def load_dbt_project_from_manifest(
         model_paths=model_paths,
         models=models,
         sources=sources,
+        exposures=exposures,
         metadata=metadata,
         source="manifest",
     )
@@ -79,7 +82,7 @@ def _validate_schema_version(dbt_schema_version: str) -> None:
 
 
 def _parse_models(nodes: dict[str, Any], project_root: Path) -> list[DbtModel]:
-    test_counts = _count_tests_by_model(nodes)
+    test_unique_ids_by_model = _test_unique_ids_by_model(nodes)
 
     models: list[DbtModel] = []
     for node in nodes.values():
@@ -107,31 +110,35 @@ def _parse_models(nodes: dict[str, Any], project_root: Path) -> list[DbtModel]:
                 description=node.get("description") or None,
                 tags=node.get("tags") or [],
                 owner=(node.get("meta") or {}).get("owner"),
-                test_count=test_counts.get(node["name"], 0),
+                test_count=len(test_unique_ids_by_model.get(node["name"], [])),
+                test_unique_ids=test_unique_ids_by_model.get(node["name"], []),
                 model_group=extract_model_group(relative_path),
             )
         )
     return sorted(models, key=lambda model: model.name)
 
 
-def _count_tests_by_model(nodes: dict[str, Any]) -> dict[str, int]:
-    """Map model name -> number of dbt tests that depend on it.
+def _test_unique_ids_by_model(nodes: dict[str, Any]) -> dict[str, list[str]]:
+    """Map model name -> unique_ids of the dbt tests that depend on it.
 
     Unlike description/tags/meta (attributes of the model's own node),
     tests are separate top-level nodes (resource_type == "test") that
     reference their subject via depends_on.nodes -- there is no "tests"
-    list directly on a model node to read.
+    list directly on a model node to read. Returning the unique_ids
+    themselves (not just a count) is what lets health_service.py later
+    look each one up in run_results.json's pass/fail/error status
+    without re-walking the manifest a second time.
     """
 
-    counts: dict[str, int] = defaultdict(int)
-    for node in nodes.values():
+    by_model: dict[str, list[str]] = defaultdict(list)
+    for unique_id, node in nodes.items():
         if node.get("resource_type") != "test":
             continue
         for dependency_unique_id in node.get("depends_on", {}).get("nodes", []):
             parts = dependency_unique_id.split(".")
             if parts[0] == "model":
-                counts[parts[-1]] += 1
-    return counts
+                by_model[parts[-1]].append(unique_id)
+    return by_model
 
 
 def _parse_dependencies(node: dict[str, Any]) -> tuple[list[DbtDependency], list[DbtDependency]]:
@@ -189,6 +196,33 @@ def _parse_sources(source_nodes: dict[str, Any]) -> list[DbtSource]:
         )
         for source_name, tables in sorted(tables_by_source.items())
     ]
+
+
+def _parse_exposures(exposure_nodes: dict[str, Any]) -> list[DbtExposure]:
+    """Manifest `exposures` -> DbtExposure, keeping only the model names
+    each one depends on (depends_on can also list sources/metrics, which
+    downstream-impact matching -- the one consumer of this field so far
+    -- has no use for)."""
+
+    exposures: list[DbtExposure] = []
+    for node in exposure_nodes.values():
+        depends_on_models = [
+            parts[-1]
+            for dependency_unique_id in node.get("depends_on", {}).get("nodes", [])
+            if (parts := dependency_unique_id.split("."))[0] == "model"
+        ]
+        owner = node.get("owner") or {}
+        exposures.append(
+            DbtExposure(
+                name=node.get("name", ""),
+                exposure_type=node.get("type"),
+                owner=owner.get("name") or owner.get("email"),
+                url=node.get("url"),
+                description=node.get("description") or None,
+                depends_on_models=depends_on_models,
+            )
+        )
+    return sorted(exposures, key=lambda exposure: exposure.name)
 
 
 def _infer_model_paths(nodes: dict[str, Any]) -> list[str]:

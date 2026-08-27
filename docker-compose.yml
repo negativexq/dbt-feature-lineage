@@ -10,6 +10,12 @@ services:
       STREAMLIT_SERVER_RUN_ON_SAVE: "true"
     volumes:
       - .:/app
+      # Clone-from-git (Select Project's "clone from git" tab, api/git_loader.py)
+      # checks repos out under the container's own home directory -- without
+      # a named volume here, every container recreation (a plain `docker
+      # compose restart`/image rebuild, not just a host reboot) would silently
+      # wipe every cloned project and force a re-clone.
+      - dbt-feature-lineage-repos:/root/.dbt-feature-lineage
     ports:
       - "8501:8501"
     command:
@@ -32,3 +38,48 @@ services:
       timeout: 5s
       start_period: 10s
       retries: 3
+
+  # The FastAPI backend for frontend/ (Next.js) -- the primary web
+  # interface as of v0.10, replacing the Streamlit app above (still kept
+  # as `app`/`make app` for anyone who prefers it; the CLI and every
+  # services/domain module are shared unchanged by both). The frontend
+  # itself isn't containerized here: it's a Next.js dev server meant to
+  # be run directly on the host (`cd frontend && npm install && npm run
+  # dev`) for fast HMR, pointed at this service via
+  # frontend/.env.local's NEXT_PUBLIC_API_BASE.
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    working_dir: /app
+    environment:
+      PYTHONPATH: /app/src
+    volumes:
+      - .:/app
+      - dbt-feature-lineage-repos:/root/.dbt-feature-lineage
+    ports:
+      - "8000:8000"
+    command:
+      [
+        "uvicorn",
+        "dbt_feature_lineage.api.app:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+      ]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)",
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  dbt-feature-lineage-repos:

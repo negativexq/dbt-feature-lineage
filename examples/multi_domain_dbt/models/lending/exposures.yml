@@ -1,0 +1,13 @@
+version: 2
+
+exposures:
+  - name: risk_leadership_dashboard
+    type: dashboard
+    maturity: high
+    owner:
+      name: Risk Analytics
+      email: risk-analytics@example.com
+    url: https://bi.example.com/dashboards/risk-leadership
+    description: Executive dashboard tracking default risk exposure by risk band.
+    depends_on:
+      - ref('mart_default_risk')
