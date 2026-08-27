@@ -156,7 +156,19 @@ docker compose run --rm api dbt-feature-lineage lineage examples/sample_banking_
 
 ## Web interface
 
-Five pages, sharing one project/model-group selection set once on **Select Project** and read everywhere else — plus a global ⌘K command palette that works from any of them. See [Features](#features) above for what each page covers. (Screenshots are pending a refresh for the current Next.js UI — the images previously here were from the retired Streamlit interface and would misrepresent the current app.)
+Five pages, sharing one project/model-group selection set once on **Select Project** and read everywhere else — plus a global ⌘K command palette that works from any of them. See [Features](#features) above for what each page covers.
+
+### Screenshots
+
+These screenshots are from the current Next.js interface using the bundled `examples/multi_domain_dbt` project in manifest mode.
+
+| Select Project | Dashboard |
+| --- | --- |
+| ![Select Project screen](docs/photos/web-select-project.jpg) | ![Dashboard screen](docs/photos/web-dashboard.jpg) |
+
+| Model DAG | Column Lineage |
+| --- | --- |
+| ![Model DAG screen](docs/photos/web-model-dag.jpg) | ![Column Lineage screen](docs/photos/web-column-lineage.jpg) |
 
 ## Parsing strategy
 
