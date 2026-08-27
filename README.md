@@ -10,6 +10,18 @@
 
 Large dbt projects accumulate dozens of models, hundreds of columns, and SQL transformations that are hard to hold in your head. Answering "where did this column come from?", "what breaks if I change this?", or "does anyone outside the data team actually depend on this?" usually means manually grepping SQL and YAML across the repo. dbt-feature-lineage scans a dbt project — a local checkout, or a git URL it clones for you — and gives you a Typer CLI and a web app to explore model structure, trace a column's lineage, and see what a change would affect. No warehouse credentials, no SaaS account, no dbt Cloud seat.
 
+## Screenshots
+
+These screenshots are from the current Next.js interface using the bundled `examples/multi_domain_dbt` project in manifest mode.
+
+| Select Project | Dashboard |
+| --- | --- |
+| ![Select Project screen](docs/photos/web-select-project.jpg) | ![Dashboard screen](docs/photos/web-dashboard.jpg) |
+
+| Model DAG | Column Lineage |
+| --- | --- |
+| ![Model DAG screen](docs/photos/web-model-dag.jpg) | ![Column Lineage screen](docs/photos/web-column-lineage.jpg) |
+
 ## Features
 
 **Project analysis & CLI**
@@ -157,18 +169,6 @@ docker compose run --rm api dbt-feature-lineage lineage examples/sample_banking_
 ## Web interface
 
 Five pages, sharing one project/model-group selection set once on **Select Project** and read everywhere else — plus a global ⌘K command palette that works from any of them. See [Features](#features) above for what each page covers.
-
-### Screenshots
-
-These screenshots are from the current Next.js interface using the bundled `examples/multi_domain_dbt` project in manifest mode.
-
-| Select Project | Dashboard |
-| --- | --- |
-| ![Select Project screen](docs/photos/web-select-project.jpg) | ![Dashboard screen](docs/photos/web-dashboard.jpg) |
-
-| Model DAG | Column Lineage |
-| --- | --- |
-| ![Model DAG screen](docs/photos/web-model-dag.jpg) | ![Column Lineage screen](docs/photos/web-column-lineage.jpg) |
 
 ## Parsing strategy
 
