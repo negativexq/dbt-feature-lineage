@@ -5,6 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Python](https://img.shields.io/badge/python-3.12%2B-blue)
 ![Docker](https://img.shields.io/badge/runtime-Docker-2496ED?logo=docker&logoColor=white)
+[![GitHub stars](https://img.shields.io/github/stars/negativexq/dbt-feature-lineage?style=flat&color=blue)](https://github.com/negativexq/dbt-feature-lineage/stargazers)
 
 ## Why this exists
 
@@ -24,7 +25,7 @@ These screenshots are from the current Next.js interface using the bundled `exam
 
 ## Features
 
-**Project analysis & CLI**
+### Project analysis & CLI
 
 - Local dbt project path analysis and `dbt_project.yml` validation
 - Recursive SQL model discovery with staging, intermediate, marts, and unknown layer detection
@@ -34,14 +35,14 @@ These screenshots are from the current Next.js interface using the bundled `exam
 - CTE, table alias, join, filter, aggregate, and window-function analysis; output-column extraction and transformation-type classification
 - Human-readable and JSON output for every CLI command
 
-**Column-level lineage**
+### Column-level lineage
 
 - Cross-model column lineage: traces a column back through joins, coalesces, and renames to its raw source(s), or forward to its downstream consumers, via a project-wide `networkx` graph
 - Downstream Impact Analysis: a model-grouped summary of a column's downstream chain — how many models/columns are affected, split into directly-affected and the full transitive chain, plus which registered **exposures** (dashboards, ML models) are caught in the blast radius
 - Model Health: a Healthy/Caution/Degraded/Unknown signal per model, derived from the optional `target/run_results.json` dbt already writes after a `build`/`test` run — no warehouse query, no separate observability tool
 - Query Flow Visualization: a single model's own source → CTE → final select → output steps as an interactive diagram
 
-**Web interface**
+### Web interface
 
 A FastAPI backend (a thin JSON wrapper over the same `services`/`domain` layer the CLI uses — no duplicated logic) and a Next.js frontend, replacing the project's original Streamlit UI as the primary way to explore a project interactively:
 
@@ -165,10 +166,6 @@ docker compose run --rm api dbt-feature-lineage analyze examples/sample_banking_
 docker compose run --rm api dbt-feature-lineage inspect examples/sample_banking_dbt mart_customer_features
 docker compose run --rm api dbt-feature-lineage lineage examples/sample_banking_dbt customer_id
 ```
-
-## Web interface
-
-Five pages, sharing one project/model-group selection set once on **Select Project** and read everywhere else — plus a global ⌘K command palette that works from any of them. See [Features](#features) above for what each page covers.
 
 ## Parsing strategy
 
