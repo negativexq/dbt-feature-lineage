@@ -80,7 +80,6 @@ function ModelExplorerPageInner() {
   // link visibly does nothing.
   useEffect(() => {
     if (deepLinkedModel) setSelected(deepLinkedModel);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deepLinkedModel]);
 
   useEffect(() => {
@@ -255,7 +254,7 @@ function ModelExplorerPageInner() {
                           ))}
                         </div>
                       ) : (
-                        <p className="text-sm text-text-lo">This model reads no other models — it's a root.</p>
+                        <p className="text-sm text-text-lo">This model reads no other models — it&apos;s a root.</p>
                       )}
                     </Card>
                     <Card>

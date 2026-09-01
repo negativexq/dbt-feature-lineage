@@ -38,10 +38,18 @@ from dbt_feature_lineage.loaders import artifact_detector
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
+# AppTest.from_file() resolves a *relative* script path against the file
+# that calls it (tests/test_app.py), not the process's working directory --
+# a real regression hit here when the installed Streamlit version's own
+# resolution semantics changed underneath this suite (previously "cwd",
+# now "caller's own directory"). An absolute path sidesteps whatever that
+# resolution rule is entirely.
+APP_PATH = str(Path(__file__).resolve().parent.parent / "app.py")
+
 
 def _run_select_project_page(root_dir: Path | None = None) -> AppTest:
     # Select Project is now the default/first page -- no switch_page needed.
-    at = AppTest.from_file("app.py", default_timeout=15)
+    at = AppTest.from_file(APP_PATH, default_timeout=15)
     at.run()
     if root_dir is not None:
         at.text_input(key="select_project_root").set_value(str(root_dir)).run()
@@ -58,7 +66,7 @@ def _seed_shared_state(at: AppTest, project_dir: Path | None, model_group: str |
 def _run_model_explorer_page(
     project_dir: Path | None = None, model_group: str | None = None
 ) -> AppTest:
-    at = AppTest.from_file("app.py", default_timeout=15)
+    at = AppTest.from_file(APP_PATH, default_timeout=15)
     at.switch_page("pages/model_explorer.py")
     _seed_shared_state(at, project_dir, model_group)
     at.run()
@@ -67,7 +75,7 @@ def _run_model_explorer_page(
 
 
 def _run_model_dag_page(project_dir: Path | None = None, model_group: str | None = None) -> AppTest:
-    at = AppTest.from_file("app.py", default_timeout=20)
+    at = AppTest.from_file(APP_PATH, default_timeout=20)
     at.switch_page("pages/model_dag.py")
     _seed_shared_state(at, project_dir, model_group)
     at.run()
@@ -76,7 +84,7 @@ def _run_model_dag_page(project_dir: Path | None = None, model_group: str | None
 
 
 def _run_lineage_page(project_dir: Path | None = None, model_group: str | None = None) -> AppTest:
-    at = AppTest.from_file("app.py", default_timeout=20)
+    at = AppTest.from_file(APP_PATH, default_timeout=20)
     at.switch_page("pages/column_lineage.py")
     _seed_shared_state(at, project_dir, model_group)
     at.run()
@@ -87,7 +95,7 @@ def _run_lineage_page(project_dir: Path | None = None, model_group: str | None =
 def _run_feature_explorer_page(
     project_dir: Path | None = None, model_group: str | None = None
 ) -> AppTest:
-    at = AppTest.from_file("app.py", default_timeout=15)
+    at = AppTest.from_file(APP_PATH, default_timeout=15)
     at.switch_page("pages/feature_explorer.py")
     _seed_shared_state(at, project_dir, model_group)
     at.run()
