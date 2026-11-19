@@ -3,16 +3,17 @@ version: 2
 models:
   - name: int_customer_daily_balance
     description: Daily estimated balance snapshots and 30 day rolling balance metrics by customer.
-    meta:
-      owner: feature-platform-team
+    config:
+      meta:
+        owner: feature-platform-team
     columns:
       - name: customer_id
         description: Customer key.
-        tests:
+        data_tests:
           - not_null
       - name: balance_date
         description: Snapshot date.
-        tests:
+        data_tests:
           - not_null
       - name: estimated_end_of_day_balance
         description: Back-calculated end of day balance estimate.
@@ -21,7 +22,7 @@ models:
     columns:
       - name: customer_id
         description: Customer key.
-        tests:
+        data_tests:
           - not_null
           - unique
       - name: total_spend_30d
@@ -30,12 +31,13 @@ models:
         description: Most recent transaction date.
   - name: int_customer_credit_profile
     description: Customer credit profile combining loans and revolving credit usage.
-    meta:
-      owner: risk-analytics
+    config:
+      meta:
+        owner: risk-analytics
     columns:
       - name: customer_id
         description: Customer key.
-        tests:
+        data_tests:
           - not_null
           - unique
       - name: credit_utilization_ratio
@@ -47,7 +49,7 @@ models:
     columns:
       - name: customer_id
         description: Customer key.
-        tests:
+        data_tests:
           - not_null
           - unique
       - name: customer_tenure_days

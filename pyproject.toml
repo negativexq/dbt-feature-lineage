@@ -22,7 +22,12 @@ dependencies = [
   # (verified: this exact regression, during v0.5 development).
   "pydantic>=2",
   "pyyaml",
-  "sqlglot",
+  # 30.22 started tracing columns of tables missing from the schema (dbt
+  # sources that declare no columns, in a manifest without catalog.json)
+  # down to the source itself instead of stopping one hop early; tests
+  # assert the complete chain. lineage(None, ...) (one pass per model,
+  # used by lineage_service) is also only in recent releases.
+  "sqlglot>=30.22",
   # Already pulled in transitively by dbt-core, but sql_parser.py imports
   # it directly to actually render dbt Jinja ({% set %}/{% for %} control
   # flow, not just {{ ref() }}/{{ source() }} calls) instead of leaving
@@ -49,6 +54,9 @@ dbt-feature-lineage = "dbt_feature_lineage.cli:main"
 
 [project.optional-dependencies]
 dev = [
+  # fastapi.testclient.TestClient (tests/test_api.py); current Starlette
+  # deprecates plain httpx for it in favor of httpx2.
+  "httpx2",
   "pytest",
   "pytest-cov",
   "ruff",

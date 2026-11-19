@@ -20,7 +20,7 @@ from pathlib import Path
 
 import networkx as nx
 
-from dbt_feature_lineage.domain.models import DbtModelAnalysis, DbtProject
+from dbt_feature_lineage.domain.models import ArtifactStatus, DbtModelAnalysis, DbtProject
 from dbt_feature_lineage.loaders.artifact_detector import resolve_dbt_project
 from dbt_feature_lineage.loaders.run_results_loader import RunResultEntry, load_run_results
 from dbt_feature_lineage.services.lineage_service import build_project_lineage
@@ -56,9 +56,26 @@ def cached_load_project(project_path: str, manifest_cache_key: float) -> DbtProj
 def generate_artifacts_and_reload(project_path: str) -> DbtProject:
     """Run `dbt parse` (uncached, so a retry after a fix is never stale)."""
 
-    project = resolve_dbt_project(project_path, generate_artifacts=True)
+    project = resolve_dbt_project(project_path, generate_artifacts=True, force_parse=True)
     cached_load_project.cache_clear()
+    if project.artifact_status is not None:
+        resolved = Path(project_path).expanduser().resolve()
+        _last_parse_status[str(resolved)] = (manifest_mtime(resolved), project.artifact_status)
     return project
+
+
+# The outcome of the last explicit `dbt parse` per project, keyed to the
+# manifest it produced. A plain reload of that same manifest would report
+# just "found" and lose what dbt said about it (errors under dbt 2.0's
+# stricter spec); this keeps it until the manifest changes underneath.
+_last_parse_status: dict[str, tuple[float, ArtifactStatus]] = {}
+
+
+def last_parse_status(resolved_path: Path) -> ArtifactStatus | None:
+    entry = _last_parse_status.get(str(resolved_path))
+    if entry is None or entry[0] != manifest_mtime(resolved_path):
+        return None
+    return entry[1]
 
 
 @lru_cache(maxsize=128)

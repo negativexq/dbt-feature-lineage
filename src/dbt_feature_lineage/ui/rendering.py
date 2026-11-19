@@ -16,6 +16,12 @@ from dbt_feature_lineage.domain.models import (
 _ARTIFACT_STATUS_MESSAGES: dict[str, str] = {
     "found": "Using compiled artifacts from target/manifest.json.",
     "generated": "Generated target/manifest.json via `dbt parse` and now using it.",
+    "reparse_failed": (
+        "Re-parse did not complete — still using the previous target/manifest.json."
+    ),
+    "generated_with_errors": (
+        "Generated target/manifest.json via `dbt parse`, but dbt reported project errors."
+    ),
     "not_generated": "target/manifest.json not found — using the static SQL parser.",
     "dbt_cli_unavailable": "`dbt` CLI not found on PATH — using the static SQL parser.",
     "no_profile": "No profiles.yml found for this project — using the static SQL parser.",
@@ -111,6 +117,12 @@ def filter_output_columns(
     return filtered
 
 
+def artifact_status_headline(status: ArtifactStatus) -> str:
+    """The fixed one-line headline for a status, without dbt's own output."""
+
+    return _ARTIFACT_STATUS_MESSAGES.get(status.reason, f"{status.mode} mode ({status.reason}).")
+
+
 def describe_artifact_status(status: ArtifactStatus) -> tuple[str, str]:
     """Build a (level, message) pair for surfacing an ArtifactStatus in the UI.
 
@@ -125,7 +137,8 @@ def describe_artifact_status(status: ArtifactStatus) -> tuple[str, str]:
     two end up saying the same thing twice.
     """
 
-    if status.mode == "manifest":
+    degraded_manifest = {"generated_with_errors", "reparse_failed"}
+    if status.mode == "manifest" and status.reason not in degraded_manifest:
         level = "success"
     elif status.reason == "not_generated":
         level = "info"

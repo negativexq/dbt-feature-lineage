@@ -23,13 +23,26 @@ export interface DiscoveredProject {
   relative_path: string;
 }
 
+export interface DbtIssue {
+  severity: "error" | "warning";
+  kind: string;
+  code: string;
+  message: string;
+  file: string | null;
+  line: number | null;
+}
+
 export interface ArtifactStatus {
   mode: "manifest" | "static";
   reason: string;
   message: string;
   dbt_version: string | null;
-  level?: string;
+  level?: "success" | "info" | "warning";
   display_message?: string;
+  /** Fixed one-line headline, without dbt's own output. */
+  headline?: string;
+  /** dbt 2.0 errors parsed out of `message` (empty for dbt 1.x output). */
+  issues?: DbtIssue[];
 }
 
 export interface ProjectSummary {
@@ -75,6 +88,25 @@ export interface ModelAnalysis {
   tags: string[];
   test_count: number;
   materialization: string | null;
+  column_descriptions?: Record<string, string>;
+  downstream_models: string[];
+  exposures: { name: string; exposure_type: string | null; owner: string | null; url: string | null }[];
+}
+
+export type ReadinessSeverity = "blocker" | "error" | "info";
+
+export interface ReadinessFinding {
+  rule: string;
+  severity: ReadinessSeverity;
+  file: string;
+  line: number | null;
+  message: string;
+  fix: string;
+}
+
+export interface UpgradeReadinessResponse {
+  summary: Record<ReadinessSeverity, number>;
+  findings: ReadinessFinding[];
 }
 
 export interface QueryFlowStep {
@@ -157,7 +189,10 @@ export interface ModelHealthResponse {
 export interface FeatureMatch {
   model: string;
   layer: string;
+  /** The model's description. */
   description: string | null;
+  /** This column's own description in that model (manifest only). */
+  column_description: string | null;
   owner: string | null;
   tags: string[];
   test_count: number;
@@ -199,6 +234,8 @@ export const api = {
     apiFetch<ModelHealthResponse>(
       `/api/model-health?path=${encodeURIComponent(path)}${group ? `&group=${encodeURIComponent(group)}` : ""}`
     ),
+  getUpgradeReadiness: (path: string) =>
+    apiFetch<UpgradeReadinessResponse>(`/api/upgrade-readiness?path=${encodeURIComponent(path)}`),
   searchColumns: (path: string, q: string, group?: string | null) =>
     apiFetch<ColumnMatch[]>(
       `/api/lineage/search?path=${encodeURIComponent(path)}&q=${encodeURIComponent(q)}${

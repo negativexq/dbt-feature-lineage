@@ -61,6 +61,37 @@ def get_column_lineage(
     )
 
 
+def _model_column_lineage(
+    project_schema: ProjectSchema, model_name: str, dialect: str
+) -> dict[str, Node] | None:
+    """Every output column's lineage for one model in a single sqlglot pass.
+
+    lineage(None, ...) expands/qualifies the model's SQL once and shares a
+    node cache across its columns, instead of redoing that work per column
+    (roughly an order of magnitude faster on real projects). Returns None
+    when the model as a whole fails, so the caller can retry column by
+    column and attribute the failure to the specific columns affected.
+    """
+
+    try:
+        roots = lineage(
+            None,
+            project_schema.raw_sql_by_model[model_name],
+            schema=project_schema.schema,
+            sources=project_schema.sources,
+            dialect=dialect,
+            # trim_selects only tidies Node.source (which this module never
+            # reads) and costs a deep copy of the select per node -- most
+            # of the build time on CTE-heavy models.
+            trim_selects=False,
+        )
+    except (SqlglotError, RecursionError, TypeError):
+        return None
+    if not isinstance(roots, dict):
+        return None
+    return {_clean_column_name(name): node for name, node in roots.items()}
+
+
 def build_project_lineage(project: DbtProject) -> nx.DiGraph:
     """Build the full column lineage graph for a project.
 
@@ -97,14 +128,18 @@ def build_project_lineage(project: DbtProject) -> nx.DiGraph:
     for model in project.models:
         if model.name in excluded_models:
             continue
-        for column_name in project_schema.columns_by_model.get(model.name, []):
-            try:
-                root = get_column_lineage(project_schema, model.name, column_name, dialect)
-            except SqlglotError as exc:
-                lineage_warnings.append(
-                    f"Could not build lineage for '{model.name}.{column_name}': {exc}"
-                )
-                continue
+        column_names = project_schema.columns_by_model.get(model.name, [])
+        roots_by_column = _model_column_lineage(project_schema, model.name, dialect)
+        for column_name in column_names:
+            root = roots_by_column.get(column_name) if roots_by_column else None
+            if root is None:
+                try:
+                    root = get_column_lineage(project_schema, model.name, column_name, dialect)
+                except SqlglotError as exc:
+                    lineage_warnings.append(
+                        f"Could not build lineage for '{model.name}.{column_name}': {exc}"
+                    )
+                    continue
 
             edges: list[ColumnEdge] = []
             root_node = _convert_node(root, model.name, project_schema, layers, edges)
@@ -316,6 +351,10 @@ def _leaf_column_node(
         # None means a known dbt *source* (terminal) -- represent it by its
         # own physical identity, since it has no dbt model name of its own.
         model_name = resolved_model or _physical_name(table)
+        if resolved_model is None:
+            return ColumnNode(
+                model=model_name, column=_clean_column_name(node.name), layer="source"
+            )
     else:
         # Orphan leaf: schema_builder never saw this physical table at all
         # (docs/v0.3-plan.md Risk 2/3) -- still represented, just unresolved.

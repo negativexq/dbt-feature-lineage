@@ -26,7 +26,7 @@ export default function FeatureExplorerPage() {
 
 function FeatureExplorerPageInner() {
   const { path, group, ready } = useSharedProject();
-  const { name: projectName, mode } = useProjectSummary(path);
+  const { name: projectName, mode, dbtVersion } = useProjectSummary(path);
   // A deep link from Model Explorer's Columns tab ("compare this
   // column") lands here as ?q=name.
   const searchParams = useSearchParams();
@@ -68,7 +68,7 @@ function FeatureExplorerPageInner() {
         eyebrow="feature-explorer --compare"
         title="Feature explorer"
         caption="Search a column name and compare every model that produces it, side by side."
-        right={<StatusPill projectName={projectName ?? path.split("/").pop() ?? path} group={group} mode={mode} />}
+        right={<StatusPill projectName={projectName ?? path.split("/").pop() ?? path} group={group} mode={mode} dbtVersion={dbtVersion} />}
       />
       {error && <ErrorBanner message={error} />}
 
@@ -110,8 +110,8 @@ function FeatureExplorerPageInner() {
           <div className="mb-4 grid grid-cols-4 gap-3">
             <MetricCard label="Models" value={matches.length} />
             <MetricCard
-              label="Documented"
-              value={`${matches.filter((m) => m.description).length}/${matches.length}`}
+              label="Column documented"
+              value={`${matches.filter((m) => m.column_description).length}/${matches.length}`}
             />
             <MetricCard label="Owned" value={`${matches.filter((m) => m.owner).length}/${matches.length}`} />
             <MetricCard
@@ -126,7 +126,7 @@ function FeatureExplorerPageInner() {
                 <tr className="border-b border-line bg-ink-900 font-mono text-text-lo">
                   <th className="px-3 py-2 font-normal">layer</th>
                   <th className="px-3 py-2 font-normal">model</th>
-                  <th className="px-3 py-2 font-normal">description</th>
+                  <th className="px-3 py-2 font-normal">column description</th>
                   <th className="px-3 py-2 font-normal">owner</th>
                   <th className="px-3 py-2 font-normal">tags</th>
                   <th className="px-3 py-2 font-normal text-right">tests</th>
@@ -147,7 +147,18 @@ function FeatureExplorerPageInner() {
                         {m.model}
                       </Link>
                     </td>
-                    <td className="px-3 py-2 text-text-lo">{m.description || <span className="text-line">—</span>}</td>
+                    <td className="px-3 py-2 text-text-lo">
+                      {m.column_description ? (
+                        <span className="text-text-hi">{m.column_description}</span>
+                      ) : (
+                        <span className="font-mono text-xs text-text-lo/60">undocumented</span>
+                      )}
+                      {m.description && (
+                        <p className="mt-0.5 text-xs text-text-lo" title="Model description">
+                          in: {m.description}
+                        </p>
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-text-lo">{m.owner || <span className="text-line">—</span>}</td>
                     <td className="px-3 py-2">
                       {m.tags.length > 0 ? (

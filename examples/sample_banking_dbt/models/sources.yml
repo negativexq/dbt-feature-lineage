@@ -12,26 +12,26 @@ sources:
         columns:
           - name: customer_id
             description: Unique customer identifier from the source system.
-            tests:
+            data_tests:
               - not_null
               - unique
           - name: first_name
             description: Customer given name.
-            tests:
+            data_tests:
               - not_null
           - name: last_name
             description: Customer family name.
-            tests:
+            data_tests:
               - not_null
           - name: date_of_birth
             description: Customer birth date.
           - name: onboarding_date
             description: Date the customer was onboarded.
-            tests:
+            data_tests:
               - not_null
           - name: customer_status
             description: Lifecycle status from the banking system.
-            tests:
+            data_tests:
               - accepted_values:
                   arguments:
                     values: ["active", "inactive", "blocked", "closed"]
@@ -45,12 +45,12 @@ sources:
         columns:
           - name: account_id
             description: Unique account identifier.
-            tests:
+            data_tests:
               - not_null
               - unique
           - name: customer_id
             description: Owner customer identifier.
-            tests:
+            data_tests:
               - not_null
               - relationships:
                   arguments:
@@ -58,13 +58,13 @@ sources:
                     field: customer_id
           - name: account_type
             description: Deposit account product family.
-            tests:
+            data_tests:
               - accepted_values:
                   arguments:
                     values: ["checking", "savings", "credit", "investment"]
           - name: account_status
             description: Operational account status.
-            tests:
+            data_tests:
               - accepted_values:
                   arguments:
                     values: ["active", "dormant", "closed", "frozen"]
@@ -77,23 +77,24 @@ sources:
       - name: transactions
         identifier: "{{ var('transactions_table', 'transactions') }}"
         description: Atomic account transaction fact table with debits and credits.
-        loaded_at_field: transaction_timestamp
-        freshness:
-          warn_after:
-            count: 24
-            period: hour
-          error_after:
-            count: 48
-            period: hour
+        config:
+          loaded_at_field: transaction_timestamp
+          freshness:
+            warn_after:
+              count: 24
+              period: hour
+            error_after:
+              count: 48
+              period: hour
         columns:
           - name: transaction_id
             description: Unique transaction identifier.
-            tests:
+            data_tests:
               - not_null
               - unique
           - name: account_id
             description: Account impacted by the transaction.
-            tests:
+            data_tests:
               - not_null
               - relationships:
                   arguments:
@@ -101,25 +102,25 @@ sources:
                     field: account_id
           - name: customer_id
             description: Customer identifier provided by the source.
-            tests:
+            data_tests:
               - not_null
           - name: transaction_timestamp
             description: Timestamp when the transaction posted.
-            tests:
+            data_tests:
               - not_null
           - name: transaction_type
             description: Business transaction classification.
-            tests:
+            data_tests:
               - accepted_values:
                   arguments:
                     values: ["card_payment", "cash_withdrawal", "incoming_transfer", "outgoing_transfer", "fee", "loan_payment", "interest_credit", "salary"]
           - name: amount
             description: Signed transaction amount in source currency.
-            tests:
+            data_tests:
               - not_null
           - name: debit_credit_indicator
             description: Directional indicator from the source system.
-            tests:
+            data_tests:
               - accepted_values:
                   arguments:
                     values: ["debit", "credit"]
@@ -129,12 +130,12 @@ sources:
         columns:
           - name: loan_id
             description: Unique loan identifier.
-            tests:
+            data_tests:
               - not_null
               - unique
           - name: customer_id
             description: Borrower customer identifier.
-            tests:
+            data_tests:
               - not_null
               - relationships:
                   arguments:
@@ -142,7 +143,7 @@ sources:
                     field: customer_id
           - name: loan_status
             description: Status of the loan facility.
-            tests:
+            data_tests:
               - accepted_values:
                   arguments:
                     values: ["active", "closed", "defaulted", "overdue"]

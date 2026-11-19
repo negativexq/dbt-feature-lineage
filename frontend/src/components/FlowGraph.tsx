@@ -73,6 +73,9 @@ function connectedPath(edges: FlowEdgeSpec[], selectedId: string | null | undefi
   return { nodeIds, edgeIds };
 }
 
+// Wide enough for typical dbt names (int_customer_credit_profile) at 13px mono.
+const NODE_WIDTH = 230;
+
 interface LabeledNodeData {
   label: string;
   sublabel?: string;
@@ -97,7 +100,7 @@ function LabeledNode({ data }: NodeProps<LabeledNodeData>) {
   return (
     <div
       style={{
-        width: 190,
+        width: NODE_WIDTH,
         background: "var(--ink-900)",
         border: `1px solid ${borderColor}`,
         borderRadius: 8,
@@ -143,7 +146,7 @@ function layout(nodes: FlowNodeSpec[], edges: FlowEdgeSpec[]) {
   g.setGraph({ rankdir: "LR", nodesep: 36, ranksep: 80 });
   g.setDefaultEdgeLabel(() => ({}));
 
-  const width = 190;
+  const width = NODE_WIDTH;
   const height = 52;
   nodes.forEach((n) => g.setNode(n.id, { width, height }));
   edges.forEach((e) => g.setEdge(e.source, e.target));

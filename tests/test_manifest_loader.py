@@ -328,6 +328,36 @@ def test_owner_is_read_from_meta_owner(
     assert model.owner == "finance-team"
 
 
+def test_owner_falls_back_to_config_meta_owner(
+    tmp_path: Path, metadata_manifest_data: dict[str, Any]
+) -> None:
+    # dbt 1.10+/2.0 put `meta` under `config:`; a manifest that only
+    # carries it there must still yield the owner.
+    for node in metadata_manifest_data["nodes"].values():
+        if node.get("name") == "mart_with_metadata":
+            owner = node["meta"].pop("owner")
+            node.setdefault("config", {}).setdefault("meta", {})["owner"] = owner
+    project_dir = _write_manifest(tmp_path, metadata_manifest_data)
+    project = load_dbt_project_from_manifest(project_dir)
+
+    assert _model(project, "mart_with_metadata").owner == "finance-team"
+
+
+def test_manifest_mode_status_reports_dbt_version(
+    tmp_path: Path, manifest_data: dict[str, Any]
+) -> None:
+    from dbt_feature_lineage.loaders.artifact_detector import resolve_dbt_project
+
+    manifest_data["metadata"]["dbt_version"] = "2.0.11"
+    (tmp_path / "dbt_project.yml").write_text("name: demo\nversion: '1.0'\n", encoding="utf-8")
+    project_dir = _write_manifest(tmp_path, manifest_data)
+
+    project = resolve_dbt_project(project_dir)
+
+    assert project.artifact_status.mode == "manifest"
+    assert project.artifact_status.dbt_version == "2.0.11"
+
+
 def test_test_count_is_derived_from_separate_test_nodes(
     tmp_path: Path, metadata_manifest_data: dict[str, Any]
 ) -> None:
@@ -381,3 +411,18 @@ def test_metadata_fields_default_to_none_or_empty_when_entirely_absent(
     assert stg_customers.tags == []
     assert stg_customers.owner is None
     assert stg_customers.test_count == 0
+
+
+def test_column_descriptions_are_read_from_documented_columns(
+    tmp_path: Path, manifest_data: dict[str, Any]
+) -> None:
+    node = next(n for n in manifest_data["nodes"].values() if n.get("name") == "stg_customers")
+    node["columns"] = {
+        "customer_id": {"name": "customer_id", "description": "Customer key."},
+        "last_name": {"name": "last_name", "description": ""},
+    }
+    project = load_dbt_project_from_manifest(_write_manifest(tmp_path, manifest_data))
+
+    assert _model(project, "stg_customers").column_descriptions == {
+        "customer_id": "Customer key."
+    }

@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -288,6 +290,72 @@ def test_dbt_parse_nonzero_exit_falls_back_to_static(
     assert "Compilation Error" in project.artifact_status.message
 
 
+def test_dbt_parse_nonzero_exit_with_fresh_manifest_uses_it(
+    tmp_path: Path, manifest_data: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # dbt 2.0 exits 1 for ignored-config errors (top-level `meta:` etc.)
+    # yet writes a complete manifest -- that manifest must be used, with
+    # dbt's error output kept as the status message.
+    project_dir = _write_minimal_project(tmp_path, with_profiles=True)
+    monkeypatch.setattr(artifact_detector.shutil, "which", lambda _name: "/usr/local/bin/dbt")
+
+    def fake_run(cmd: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        _write_manifest(project_dir, manifest_data)
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=1,
+            stdout="",
+            stderr="[error] [UnusedConfigKey (dbt1060)]: Ignored unexpected key `meta`",
+        )
+
+    monkeypatch.setattr(artifact_detector.subprocess, "run", fake_run)
+
+    project = resolve_dbt_project(project_dir, generate_artifacts=True)
+
+    assert project.source == "manifest"
+    assert project.artifact_status.reason == "generated_with_errors"
+    assert "UnusedConfigKey" in project.artifact_status.message
+
+
+def test_dbt_parse_error_text_read_from_stdout_too(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project_dir = _write_minimal_project(tmp_path, with_profiles=True)
+    monkeypatch.setattr(artifact_detector.shutil, "which", lambda _name: "/usr/local/bin/dbt")
+
+    def fake_run(cmd: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=2, stdout="Parsing Error: bad yaml", stderr=""
+        )
+
+    monkeypatch.setattr(artifact_detector.subprocess, "run", fake_run)
+
+    project = resolve_dbt_project(project_dir, generate_artifacts=True)
+
+    assert project.source == "static"
+    assert "Parsing Error" in project.artifact_status.message
+
+
+def test_dbt_parse_opts_into_experimental_adapters(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # dbt 2.0 won't parse a postgres-profile project without this flag.
+    project_dir = _write_minimal_project(tmp_path, with_profiles=True)
+    monkeypatch.setattr(artifact_detector.shutil, "which", lambda _name: "/usr/local/bin/dbt")
+    monkeypatch.delenv("DBT_ALLOW_EXPERIMENTAL_ADAPTERS", raising=False)
+    seen: dict[str, Any] = {}
+
+    def fake_run(cmd: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        seen.update(kwargs)
+        return subprocess.CompletedProcess(args=cmd, returncode=1, stdout="", stderr="x")
+
+    monkeypatch.setattr(artifact_detector.subprocess, "run", fake_run)
+
+    resolve_dbt_project(project_dir, generate_artifacts=True)
+
+    assert seen["env"]["DBT_ALLOW_EXPERIMENTAL_ADAPTERS"] == "true"
+
+
 def test_dbt_parse_timeout_falls_back_to_static(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -362,3 +430,68 @@ def test_dbt_parse_success_with_malformed_manifest_falls_back_to_static(
 
     assert project.source == "static"
     assert project.artifact_status.reason == "manifest_parse_failed"
+
+
+def test_force_parse_reruns_dbt_even_with_existing_manifest(
+    tmp_path: Path, manifest_data: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project_dir = _write_minimal_project(tmp_path, with_profiles=True)
+    _write_manifest(project_dir, manifest_data)
+    monkeypatch.setattr(artifact_detector.shutil, "which", lambda _name: "/usr/local/bin/dbt")
+    calls: list[Any] = []
+
+    def fake_run(cmd: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        calls.append(cmd)
+        _write_manifest(project_dir, manifest_data)
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(artifact_detector.subprocess, "run", fake_run)
+
+    project = resolve_dbt_project(project_dir, generate_artifacts=True, force_parse=True)
+
+    assert len(calls) == 1
+    assert project.artifact_status.reason == "generated"
+
+
+def test_failed_force_parse_keeps_existing_manifest(
+    tmp_path: Path, manifest_data: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project_dir = _write_minimal_project(tmp_path, with_profiles=True)
+    _write_manifest(project_dir, manifest_data)
+    monkeypatch.setattr(artifact_detector.shutil, "which", lambda _name: "/usr/local/bin/dbt")
+
+    def fake_run(cmd: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=2, stdout="", stderr="Parsing Error: broken yaml"
+        )
+
+    monkeypatch.setattr(artifact_detector.subprocess, "run", fake_run)
+    # The pre-existing manifest is older than this parse run.
+    old = time.time() - 60
+    os.utime(project_dir / "target" / "manifest.json", (old, old))
+
+    project = resolve_dbt_project(project_dir, generate_artifacts=True, force_parse=True)
+
+    assert project.source == "manifest"
+    assert project.artifact_status.reason == "reparse_failed"
+    assert "broken yaml" in project.artifact_status.message
+
+
+def test_parse_dbt_issues_extracts_dbt2_errors() -> None:
+    output = (
+        "[error] [UnusedConfigKey (dbt1060)]: While parsing config: Ignored unexpected key "
+        '`"meta"`. YAML path: `meta`.\n'
+        "  --> ../../tmp/proj/models/b.yml:28:5\n"
+        "[error] [DbtYamlValidationError (dbt1159)]: Deprecated test arguments.\n"
+        "  --> models/a.yml:9:23\n"
+        "suggestion: Run 'dbt deps'\n"
+    )
+
+    issues = artifact_detector.parse_dbt_issues(output)
+
+    assert [(i["file"], i["line"], i["code"]) for i in issues] == [
+        ("models/a.yml", 9, "dbt1159"),
+        ("models/b.yml", 28, "dbt1060"),
+    ]
+    assert issues[1]["message"].startswith("Ignored unexpected key")
+    assert artifact_detector.parse_dbt_issues("Compilation Error in model x") == []

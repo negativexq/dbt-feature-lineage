@@ -43,3 +43,31 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run build
+
+  # Real `dbt parse` on the bundled examples, on both dbt majors: dbt-core
+  # 1.x (this project's own dependency) and dbt 2.x (dbt-oss, a Rust binary
+  # in its own venv so its `dbt` doesn't clash with dbt-core's).
+  dbt-compat:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dbt: ["1.x", "2.x"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install --upgrade pip && pip install -e ".[dev]"
+      - if: matrix.dbt == '2.x'
+        run: |
+          python -m venv "$RUNNER_TEMP/dbt2"
+          "$RUNNER_TEMP/dbt2/bin/pip" install dbt-oss
+          mkdir -p "$RUNNER_TEMP/dbt2-bin"
+          ln -s "$RUNNER_TEMP/dbt2/bin/dbt" "$RUNNER_TEMP/dbt2-bin/dbt"
+          echo "$RUNNER_TEMP/dbt2-bin" >> "$GITHUB_PATH"
+      - run: dbt --version
+      - run: pytest -q tests/test_dbt_compat.py
+        env:
+          DFL_DBT_COMPAT: "1"

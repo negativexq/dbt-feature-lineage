@@ -29,11 +29,13 @@ from dbt_feature_lineage.api.cache import (
     cached_load_project,
     cached_load_run_results,
     generate_artifacts_and_reload,
+    last_parse_status,
     manifest_mtime,
     project_scoped_to_group,
 )
 from dbt_feature_lineage.domain.lineage import ColumnNode
-from dbt_feature_lineage.domain.models import DbtProject
+from dbt_feature_lineage.domain.models import ArtifactStatus, DbtProject
+from dbt_feature_lineage.loaders.artifact_detector import parse_dbt_issues
 from dbt_feature_lineage.loaders.git_loader import GitCloneError, clone_or_pull_repo
 from dbt_feature_lineage.loaders.project_discovery import discover_dbt_projects
 from dbt_feature_lineage.loaders.run_results_loader import run_results_mtime
@@ -48,7 +50,9 @@ from dbt_feature_lineage.services.column_search import (
 from dbt_feature_lineage.services.health_service import compute_model_health
 from dbt_feature_lineage.services.lineage_service import lineage_cache_key
 from dbt_feature_lineage.services.model_dag_service import model_dag_cache_key
+from dbt_feature_lineage.services.upgrade_readiness import check_upgrade_readiness, summarize
 from dbt_feature_lineage.ui.rendering import (
+    artifact_status_headline,
     describe_artifact_status,
     detect_model_groups,
     filter_models_by_group,
@@ -141,15 +145,32 @@ class ProjectSummary(BaseModel):
     artifact_status: dict[str, Any] | None
 
 
+def _artifact_status_payload(status: ArtifactStatus | None) -> dict[str, Any] | None:
+    if status is None:
+        return None
+    level, message = describe_artifact_status(status)
+    return {
+        **status.model_dump(),
+        "level": level,
+        "display_message": message,
+        "headline": artifact_status_headline(status),
+        "issues": parse_dbt_issues(status.message),
+    }
+
+
 @app.get("/api/project")
 def get_project(path: str) -> ProjectSummary:
     project = _load_project(path)
+    resolved = _resolve(path)
+    status = project.artifact_status
+    if status is not None and status.reason == "found":
+        status = last_parse_status(resolved) or status
     return ProjectSummary(
         name=project.name,
-        path=str(_resolve(path)),
+        path=str(resolved),
         model_count=len(project.models),
         model_groups=detect_model_groups(project.models),
-        artifact_status=project.artifact_status.model_dump() if project.artifact_status else None,
+        artifact_status=_artifact_status_payload(status),
     )
 
 
@@ -157,21 +178,12 @@ def get_project(path: str) -> ProjectSummary:
 def generate_artifacts(path: str) -> ProjectSummary:
     resolved = _resolve(path)
     project = generate_artifacts_and_reload(str(resolved))
-    level, message = (
-        describe_artifact_status(project.artifact_status)
-        if project.artifact_status
-        else ("info", "")
-    )
     return ProjectSummary(
         name=project.name,
         path=str(resolved),
         model_count=len(project.models),
         model_groups=detect_model_groups(project.models),
-        artifact_status={
-            **(project.artifact_status.model_dump() if project.artifact_status else {}),
-            "level": level,
-            "display_message": message,
-        },
+        artifact_status=_artifact_status_payload(project.artifact_status),
     )
 
 
@@ -213,6 +225,24 @@ def get_model(model_name: str, path: str) -> dict[str, Any]:
         result["tags"] = model.tags
         result["test_count"] = model.test_count
         result["materialization"] = model.materialization
+        result["column_descriptions"] = model.column_descriptions
+    # "Who reads this model" -- the other half of the overview's upstream
+    # ref list, and what a reviewer actually asks before changing it.
+    result["downstream_models"] = sorted(
+        m.name
+        for m in project.models
+        if any(dep.target_name == model_name for dep in m.ref_dependencies)
+    )
+    result["exposures"] = [
+        {
+            "name": exposure.name,
+            "exposure_type": exposure.exposure_type,
+            "owner": exposure.owner,
+            "url": exposure.url,
+        }
+        for exposure in project.exposures
+        if model_name in exposure.depends_on_models
+    ]
 
     return result
 
@@ -251,6 +281,17 @@ def get_model_dag(path: str, group: str | None = None) -> dict[str, Any]:
         "edges": edges,
         "warnings": graph.graph.get("model_dag_warnings", []),
     }
+
+
+@app.get("/api/upgrade-readiness")
+def get_upgrade_readiness(path: str) -> dict[str, Any]:
+    """dbt 2.0 incompatibilities found by a static YAML scan -- see
+    services/upgrade_readiness.py. Uncached: it reads a handful of YAML
+    files, and should reflect an edit the moment it is saved."""
+
+    resolved = _resolve(path)
+    findings = check_upgrade_readiness(resolved)
+    return {"summary": summarize(findings), "findings": [f.to_dict() for f in findings]}
 
 
 @app.get("/api/model-health")
@@ -412,6 +453,7 @@ def search_features(path: str, q: str, group: str | None = None) -> dict[str, An
                     "owner": m.owner,
                     "tags": m.tags,
                     "test_count": m.test_count,
+                    "column_description": m.column_description,
                 }
                 for m in index[name]
             ]

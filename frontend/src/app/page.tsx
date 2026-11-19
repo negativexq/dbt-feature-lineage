@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { api, DiscoveredProject, ProjectSummary } from "@/lib/api";
 import { useSharedProject } from "@/lib/useProject";
 import { ErrorBanner, PageHeader, PrimaryButton, PromptField } from "@/components/ui";
+import { ArtifactStatusPanel } from "@/components/ArtifactStatusPanel";
 
 export default function SelectProjectPage() {
   const router = useRouter();
@@ -185,39 +186,12 @@ export default function SelectProjectPage() {
                 everything still works off raw SQL parsing, but ref()/source()
                 edges, tests, docs, and owners come from the manifest, so
                 without one most of the app runs on a strictly weaker signal.
-                Surface that gap and the one command that closes it, rather
-                than leaving it to be discovered as missing data on other
-                pages. */}
-            <div
-              className={`flex items-center justify-between gap-3 rounded-md border px-4 py-3 ${
-                project.artifact_status?.mode === "manifest"
-                  ? "border-line bg-ink-900"
-                  : "border-amber-900/50 bg-amber-950/20"
-              }`}
-            >
-              <div className="min-w-0">
-                <p className="font-mono text-xs text-text-lo">
-                  <span className={project.artifact_status?.mode === "manifest" ? "text-accent" : "text-amber-400"}>
-                    {project.artifact_status?.mode === "manifest" ? "●" : "○"}
-                  </span>{" "}
-                  {project.artifact_status?.mode ?? "static"} mode
-                </p>
-                <p className="mt-0.5 truncate text-sm text-text-hi">
-                  {project.artifact_status?.message ?? "No manifest found — parsing raw SQL only."}
-                </p>
-              </div>
-              <button
-                onClick={handleGenerateArtifacts}
-                disabled={generating}
-                className="shrink-0 rounded-md border border-line px-3.5 py-2 font-mono text-xs text-text-hi transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
-              >
-                {generating
-                  ? "running dbt parse…"
-                  : project.artifact_status?.mode === "manifest"
-                    ? "re-parse"
-                    : "generate artifacts →"}
-              </button>
-            </div>
+                Surface that gap and the one command that closes it. */}
+            <ArtifactStatusPanel
+              status={project.artifact_status}
+              generating={generating}
+              onGenerate={handleGenerateArtifacts}
+            />
 
             {project.model_groups.length > 0 && (
               <PromptField prompt="group">

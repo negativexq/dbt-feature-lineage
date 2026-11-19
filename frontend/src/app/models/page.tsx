@@ -46,7 +46,7 @@ export default function ModelExplorerPage() {
 
 function ModelExplorerPageInner() {
   const { path, group, ready } = useSharedProject();
-  const { name: projectName, mode } = useProjectSummary(path);
+  const { name: projectName, mode, dbtVersion } = useProjectSummary(path);
   // A deep link from Feature Explorer ("compare" -> "go inspect this
   // model") lands here as ?model=name -- read once on mount so the
   // model list's own default-first-model logic doesn't clobber it.
@@ -142,12 +142,12 @@ function ModelExplorerPageInner() {
       <PageHeader
         eyebrow="model-explorer --inspect"
         title="Model explorer"
-        right={<StatusPill projectName={projectName ?? path.split("/").pop() ?? path} group={group} mode={mode} />}
+        right={<StatusPill projectName={projectName ?? path.split("/").pop() ?? path} group={group} mode={mode} dbtVersion={dbtVersion} />}
       />
       {error && <ErrorBanner message={error} />}
 
       <div className="flex gap-6">
-        <aside className="w-64 shrink-0">
+        <aside className="w-72 shrink-0">
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -163,7 +163,9 @@ function ModelExplorerPageInner() {
                   m.name === selected ? "bg-accent-dim text-text-hi" : "text-text-lo hover:text-text-hi"
                 }`}
               >
-                <span className="truncate">{m.name}</span>
+                <span className="truncate" title={m.name}>
+                  {m.name}
+                </span>
                 <span
                   className="ml-2 h-1.5 w-1.5 shrink-0 rounded-full"
                   style={{ background: layerColor(m.layer) }}
@@ -238,46 +240,76 @@ function ModelExplorerPageInner() {
                     </div>
                   )}
 
+                  {/* Reads from / read by: the two questions asked before
+                      touching a model -- "what does this depend on?" and
+                      "who breaks if I change it?". */}
                   <div className="grid grid-cols-2 gap-4">
                     <Card>
-                      <p className="eyebrow mb-3">upstream ref models</p>
-                      {analysis.ref_dependencies.length > 0 ? (
+                      <p className="eyebrow mb-3">reads from</p>
+                      {analysis.ref_dependencies.length + analysis.source_dependencies.length > 0 ? (
                         <div className="flex flex-col gap-1.5">
                           {analysis.ref_dependencies.map((d) => (
-                            <Link
-                              key={d.target_name}
-                              href={`/models?model=${encodeURIComponent(d.target_name)}`}
-                              className="font-mono text-sm text-text-hi underline decoration-line underline-offset-2 transition-colors hover:text-accent hover:decoration-accent"
-                            >
-                              {d.target_name}
-                            </Link>
+                            <ModelLink key={`ref-${d.target_name}`} name={d.target_name} />
                           ))}
-                        </div>
-                      ) : (
-                        <p className="text-sm text-text-lo">This model reads no other models — it&apos;s a root.</p>
-                      )}
-                    </Card>
-                    <Card>
-                      <p className="eyebrow mb-3">source tables</p>
-                      {analysis.source_dependencies.length > 0 ? (
-                        <div className="flex flex-col gap-1.5">
                           {analysis.source_dependencies.map((d) => (
-                            <p key={d.target_name} className="font-mono text-sm text-text-hi">
+                            <p
+                              key={`src-${d.source_name}-${d.target_name}`}
+                              className="flex items-center gap-2 font-mono text-sm text-text-hi"
+                            >
+                              <span className="h-1.5 w-1.5 rounded-full" style={{ background: layerColor("source") }} />
                               {d.source_name ? `${d.source_name}.` : ""}
                               {d.target_name}
+                              <span className="text-xs text-text-lo">source</span>
                             </p>
                           ))}
                         </div>
                       ) : (
-                        <p className="text-sm text-text-lo">No raw source() dependencies.</p>
+                        <p className="text-sm text-text-lo">Reads no models or sources — a root of the DAG.</p>
+                      )}
+                    </Card>
+                    <Card>
+                      <p className="eyebrow mb-3">read by</p>
+                      {analysis.downstream_models.length + analysis.exposures.length > 0 ? (
+                        <div className="flex flex-col gap-1.5">
+                          {analysis.downstream_models.map((name) => (
+                            <ModelLink key={`down-${name}`} name={name} />
+                          ))}
+                          {analysis.exposures.map((e) => (
+                            <p key={`exp-${e.name}`} className="flex items-center gap-2 font-mono text-sm text-text-hi">
+                              <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                              {e.url ? (
+                                <a
+                                  href={e.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="underline decoration-line underline-offset-2 hover:text-accent"
+                                >
+                                  {e.name}
+                                </a>
+                              ) : (
+                                e.name
+                              )}
+                              <span className="text-xs text-text-lo">
+                                {e.exposure_type ?? "exposure"}
+                                {e.owner ? ` · ${e.owner}` : ""}
+                              </span>
+                            </p>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-text-lo">
+                          Nothing reads this model{analysis.layer === "marts" ? " inside the project — declare an exposure for the dashboard or job that does." : " — worth checking it is still needed."}
+                        </p>
                       )}
                     </Card>
                   </div>
 
-                  <Card>
-                    <p className="font-mono text-sm text-text-lo">file</p>
-                    <p className="font-mono text-sm text-text-hi">{analysis.file_path}</p>
-                  </Card>
+                  <p className="font-mono text-xs text-text-lo">
+                    <span className="text-text-lo/70">file</span>{" "}
+                    <span className="text-text-hi" title={analysis.file_path}>
+                      {analysis.relative_path}
+                    </span>
+                  </p>
                 </div>
               )}
 
@@ -317,6 +349,7 @@ function ModelExplorerPageInner() {
                       <tr className="border-b border-line bg-ink-900 font-mono text-text-lo">
                         <th className="px-3 py-2 font-normal">output</th>
                         <th className="px-3 py-2 font-normal">type</th>
+                        <th className="px-3 py-2 font-normal">description</th>
                         <th className="px-3 py-2 font-normal">expression</th>
                       </tr>
                     </thead>
@@ -333,7 +366,15 @@ function ModelExplorerPageInner() {
                             </Link>
                           </td>
                           <td className="px-3 py-2 text-text-lo">{c.transformation_type}</td>
-                          <td className="max-w-md truncate px-3 py-2 font-mono text-text-lo">
+                          <td className="max-w-xs px-3 py-2 text-text-lo">
+                            {analysis.column_descriptions?.[c.output_name] ?? (
+                              <span className="font-mono text-xs text-text-lo/60">undocumented</span>
+                            )}
+                          </td>
+                          <td
+                            className="max-w-xs truncate px-3 py-2 font-mono text-text-lo"
+                            title={c.original_sql_expression}
+                          >
                             {c.original_sql_expression}
                           </td>
                         </tr>
@@ -349,5 +390,16 @@ function ModelExplorerPageInner() {
         </div>
       </div>
     </div>
+  );
+}
+
+function ModelLink({ name }: { name: string }) {
+  return (
+    <Link
+      href={`/models?model=${encodeURIComponent(name)}`}
+      className="font-mono text-sm text-text-hi underline decoration-line underline-offset-2 transition-colors hover:text-accent hover:decoration-accent"
+    >
+      {name}
+    </Link>
   );
 }

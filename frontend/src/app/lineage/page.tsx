@@ -29,7 +29,7 @@ export default function ColumnLineagePage() {
 
 function ColumnLineagePageInner() {
   const { path, group, ready } = useSharedProject();
-  const { name: projectName, mode } = useProjectSummary(path);
+  const { name: projectName, mode, dbtVersion } = useProjectSummary(path);
   // Two deep-link shapes land here: a general ?q=name from Model
   // Explorer/Feature Explorer's page-level search (falls into the same
   // search+disambiguate flow a manual search would), or an exact
@@ -62,6 +62,8 @@ function ColumnLineagePageInner() {
   const [downstream, setDownstream] = useState<LineageChainResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pathHighlight, setPathHighlight] = useState<string | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [tracing, setTracing] = useState(false);
 
   useEffect(() => {
     // The exact deep-link case already has its one match seeded above --
@@ -71,15 +73,30 @@ function ColumnLineagePageInner() {
     if (hasExactDeepLink) return;
     if (!ready || !path || !query) {
       setMatches([]);
+      setSearching(false);
       return;
     }
-    api
-      .searchColumns(path, query, group)
-      .then((m) => {
-        setMatches(m);
-        setSelectedKey(m[0]?.key ?? "");
-      })
-      .catch((err) => setError(err.message));
+    setSearching(true);
+    let cancelled = false;
+    // Debounced: the first search of a project builds its whole column
+    // graph server-side, so don't fire one per keystroke.
+    const timer = setTimeout(() => {
+      api
+        .searchColumns(path, query, group)
+        .then((m) => {
+          if (cancelled) return;
+          setMatches(m);
+          // Default to a dbt model's column: a raw source() column of the
+          // same name sorts first alphabetically but is rarely the target.
+          setSelectedKey((m.find((x) => x.layer !== "source") ?? m[0])?.key ?? "");
+        })
+        .catch((err) => !cancelled && setError(err.message))
+        .finally(() => !cancelled && setSearching(false));
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [ready, path, group, query, hasExactDeepLink]);
 
   const target = useMemo(() => matches.find((m) => m.key === selectedKey) ?? null, [matches, selectedKey]);
@@ -100,6 +117,7 @@ function ColumnLineagePageInner() {
       )}&layer=${encodeURIComponent(target.layer)}`,
     });
     const base = { path, model: target.model, column: target.column, layer: target.layer, group };
+    setTracing(true);
     Promise.all([
       api.getLineageChain({ ...base, direction: "upstream" }),
       api.getLineageChain({ ...base, direction: "downstream", impact: true }),
@@ -108,7 +126,8 @@ function ColumnLineagePageInner() {
         setUpstream(up);
         setDownstream(down);
       })
-      .catch((err) => setError(err.message));
+      .catch((err) => setError(err.message))
+      .finally(() => setTracing(false));
   }, [path, target, group]);
 
   if (!ready) return null;
@@ -158,7 +177,7 @@ function ColumnLineagePageInner() {
         eyebrow="column-lineage --trace"
         title="Column lineage"
         caption="Search a column and see its full path at once — raw sources on the left, everything it feeds on the right."
-        right={<StatusPill projectName={projectName ?? path.split("/").pop() ?? path} group={group} mode={mode} />}
+        right={<StatusPill projectName={projectName ?? path.split("/").pop() ?? path} group={group} mode={mode} dbtVersion={dbtVersion} />}
       />
       {error && <ErrorBanner message={error} />}
 
@@ -191,9 +210,16 @@ function ColumnLineagePageInner() {
         </div>
       )}
 
-      {query && matches.length === 0 && <EmptyState title={`No columns matching "${query}"`} />}
+      {searching && matches.length === 0 && (
+        <p className="font-mono text-sm text-text-lo">searching columns…</p>
+      )}
+      {query && !searching && matches.length === 0 && (
+        <EmptyState title={`No columns matching "${query}"`} body="Search matches any part of a column name." />
+      )}
 
-      {target && (
+      {target && tracing && !upstream && <p className="font-mono text-sm text-text-lo">tracing lineage…</p>}
+
+      {target && upstream && (
         <>
           {!hasUpstream && !hasDownstream ? (
             <EmptyState

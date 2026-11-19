@@ -224,8 +224,10 @@ def test_lineage_zero_matches_exits_nonzero(tmp_path: Path) -> None:
 
 def test_lineage_single_natural_match_json_output(tmp_path: Path) -> None:
     # "last_name" only appears in stg_customers in this fixture -- no
-    # --model needed, and its chain has no further ancestors (verified:
-    # tracing it doesn't reach past stg_customers in this project).
+    # --model needed. Its raw source column (the raw_banking.customers dbt
+    # source, which declares no columns) is also indexed, but the CLI
+    # prefers the single dbt-model match, and the chain reaches that
+    # source as its leaf.
     project_dir = _write_manifest_project(tmp_path, "manifest.json")
 
     result = runner.invoke(app, ["lineage", str(project_dir), "last_name", "--json"])
@@ -236,9 +238,10 @@ def test_lineage_single_natural_match_json_output(tmp_path: Path) -> None:
     assert payload["model"] == "stg_customers"
     assert payload["layer"] == "staging"
     assert payload["chain"] == [
-        {"model": "stg_customers", "column": "last_name", "layer": "staging"}
+        {"model": "raw_banking.customers", "column": "last_name", "layer": "source"},
+        {"model": "stg_customers", "column": "last_name", "layer": "staging"},
     ]
-    assert payload["edges"] == []
+    assert len(payload["edges"]) == 1
     assert payload["lineage_warnings"] == []
 
 

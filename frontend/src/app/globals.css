@@ -28,6 +28,7 @@
   --accent: #ff7a45; /* brand/interactive -- same hue as "marts" */
   --accent-dim: #3a2a22;
 
+  --layer-source: #a58bd6; /* raw dbt source() tables, upstream of staging */
   --layer-staging: #6b7a99;
   --layer-intermediate: #4fa6a0;
   --layer-marts: #ff7a45;
@@ -74,6 +75,7 @@
   --color-accent-dim: var(--accent-dim);
   --color-layer-staging: var(--layer-staging);
   --color-layer-intermediate: var(--layer-intermediate);
+  --color-layer-source: var(--layer-source);
   --color-layer-marts: var(--layer-marts);
   --color-layer-unknown: var(--layer-unknown);
   --font-display: var(--font-display);

@@ -166,15 +166,21 @@ def _add_source_table(
     is_manifest_mode: bool,
 ) -> None:
     columns = {column: _UNKNOWN_TYPE for column in table.columns}
+    placeholder_key = f"{source.name}__{table.name}"
 
     if not is_manifest_mode:
         # Matches sql_parser.preprocess_dbt_sql()'s {{ source(...) }} placeholder
         # exactly, so it lines up with how source() calls appear in the SQL
         # that's actually fed to sqlglot in static mode.
-        table_key = f"{source.name}__{table.name}"
-        project_schema.schema[table_key] = columns
-        project_schema.physical_to_model[(None, table_key)] = None
+        project_schema.schema[placeholder_key] = columns
+        project_schema.physical_to_model[(None, placeholder_key)] = None
         return
+
+    # A manifest from `dbt parse` alone has no compiled_code, so models are
+    # analyzed from raw_code, where source() calls become the same
+    # placeholder as in static mode. Without this, those leaves resolve to
+    # nothing and show up as an "unknown" table instead of a dbt source.
+    project_schema.physical_to_model.setdefault((None, placeholder_key), None)
 
     table_key = table.identifier or table.name
 

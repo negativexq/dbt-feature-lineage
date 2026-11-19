@@ -81,6 +81,20 @@ def _validate_schema_version(dbt_schema_version: str) -> None:
         )
 
 
+def _model_owner(node: dict[str, Any]) -> str | None:
+    """Owner from ``meta.owner``, falling back to ``config.meta.owner``.
+
+    dbt 1.10+ moves ``meta`` under ``config:`` and dbt 2.0 rejects the
+    old top-level placement outright. Current releases mirror config.meta
+    onto the node's own ``meta``, but reading both keeps older and future
+    manifests (and hand-built ones) working.
+    """
+    for meta in (node.get("meta"), (node.get("config") or {}).get("meta")):
+        if isinstance(meta, dict) and meta.get("owner"):
+            return str(meta["owner"])
+    return None
+
+
 def _parse_models(nodes: dict[str, Any], project_root: Path) -> list[DbtModel]:
     test_unique_ids_by_model = _test_unique_ids_by_model(nodes)
 
@@ -109,7 +123,12 @@ def _parse_models(nodes: dict[str, Any], project_root: Path) -> list[DbtModel]:
                 alias=node.get("alias"),
                 description=node.get("description") or None,
                 tags=node.get("tags") or [],
-                owner=(node.get("meta") or {}).get("owner"),
+                owner=_model_owner(node),
+                column_descriptions={
+                    name: column["description"]
+                    for name, column in (node.get("columns") or {}).items()
+                    if isinstance(column, dict) and column.get("description")
+                },
                 test_count=len(test_unique_ids_by_model.get(node["name"], [])),
                 test_unique_ids=test_unique_ids_by_model.get(node["name"], []),
                 model_group=extract_model_group(relative_path),

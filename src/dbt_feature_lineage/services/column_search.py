@@ -87,6 +87,9 @@ class FeatureMatch:
     owner: str | None = None
     tags: list[str] = field(default_factory=list)
     test_count: int = 0
+    # The column's own schema-YAML description in this model (manifest
+    # only) -- what actually distinguishes two same-named columns.
+    column_description: str | None = None
 
 
 def build_feature_index(project: DbtProject) -> dict[str, list[FeatureMatch]]:
@@ -124,6 +127,7 @@ def build_feature_index(project: DbtProject) -> dict[str, list[FeatureMatch]]:
                     owner=model.owner,
                     tags=model.tags,
                     test_count=model.test_count,
+                    column_description=model.column_descriptions.get(column_name),
                 )
             )
 

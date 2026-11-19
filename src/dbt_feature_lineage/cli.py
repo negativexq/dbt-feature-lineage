@@ -27,6 +27,7 @@ from dbt_feature_lineage.services.column_search import (
 )
 from dbt_feature_lineage.services.lineage_service import build_project_lineage
 from dbt_feature_lineage.services.model_analysis_service import inspect_model
+from dbt_feature_lineage.services.upgrade_readiness import check_upgrade_readiness, summarize
 
 app = typer.Typer(no_args_is_help=True)
 console = Console()
@@ -186,7 +187,10 @@ def _render_model_inspection(analysis: DbtModelAnalysis) -> None:
 
 
 def _resolve_ambiguous_match(
-    matches: list[ColumnNode], model_name: str | None, column_name: str
+    matches: list[ColumnNode],
+    model_name: str | None,
+    column_name: str,
+    dbt_model_names: frozenset[str] = frozenset(),
 ) -> ColumnNode:
     """Narrow a column-name search down to a single ColumnNode, or exit.
 
@@ -210,6 +214,14 @@ def _resolve_ambiguous_match(
 
     if len(matches) == 1:
         return matches[0]
+
+    # A raw source table that feeds a model column of the same name (e.g.
+    # raw_banking.customers.last_name -> stg_customers.last_name) isn't a
+    # real ambiguity: the user is asking about the dbt column, and its
+    # upstream trace reaches the source anyway.
+    model_matches = [match for match in matches if match.model in dbt_model_names]
+    if len(model_matches) == 1:
+        return model_matches[0]
 
     if _is_interactive():
         selected_model = Prompt.ask(
@@ -426,7 +438,9 @@ def lineage(
     lineage_warnings: list[str] = graph.graph.get("lineage_warnings", [])
 
     matches = build_search_index(graph).get(column_name, [])
-    target = _resolve_ambiguous_match(matches, model_name, column_name)
+    target = _resolve_ambiguous_match(
+        matches, model_name, column_name, frozenset(model.name for model in project.models)
+    )
     get_chain = (
         get_upstream_chain if direction is LineageDirection.upstream else get_downstream_chain
     )
@@ -446,6 +460,61 @@ def lineage(
     _render_lineage_chain(target, chain, subgraph, direction)
     if impact:
         _render_downstream_impact_summary(summarize_downstream_impact(graph, target, chain))
+
+
+@app.command("check-upgrade")
+def check_upgrade(
+    project_path: str = typer.Argument(..., help="Path to a local dbt project."),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON."),
+    strict: bool = typer.Option(
+        False, "--strict", help="Also fail (exit 1) on info-level findings."
+    ),
+) -> None:
+    """Check a dbt project for dbt 2.0 incompatibilities -- no dbt install needed.
+
+    Exits 1 when anything dbt 2.0 rejects is found, so it can gate CI.
+    """
+
+    resolved_path = Path(project_path).expanduser().resolve()
+    if not (resolved_path / "dbt_project.yml").exists():
+        console.print(f"[red]No dbt_project.yml in {resolved_path}.[/red]")
+        raise typer.Exit(code=2)
+
+    findings = check_upgrade_readiness(resolved_path)
+    counts = summarize(findings)
+    failing = counts["blocker"] + counts["error"] + (counts["info"] if strict else 0)
+
+    if json_output:
+        typer.echo(
+            json.dumps(
+                {"summary": counts, "findings": [f.to_dict() for f in findings]}, indent=2
+            )
+        )
+        raise typer.Exit(code=1 if failing else 0)
+
+    if not findings:
+        console.print("[green]Ready for dbt 2.0 -- no incompatibilities found.[/green]")
+        return
+
+    colors = {"blocker": "red", "error": "yellow", "info": "cyan"}
+    table = Table(title="dbt 2.0 upgrade readiness")
+    table.add_column("severity")
+    table.add_column("location")
+    table.add_column("issue")
+    table.add_column("fix")
+    for finding in findings:
+        location = finding.file + (f":{finding.line}" if finding.line else "")
+        table.add_row(
+            f"[{colors[finding.severity]}]{finding.severity}[/]",
+            location,
+            finding.message,
+            finding.fix,
+        )
+    console.print(table)
+    console.print(
+        f"{counts['blocker']} blocker(s), {counts['error']} error(s), {counts['info']} info"
+    )
+    raise typer.Exit(code=1 if failing else 0)
 
 
 def main() -> None:

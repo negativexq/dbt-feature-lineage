@@ -3,35 +3,36 @@ version: 2
 models:
   - name: stg_customers
     description: Standardized customer dimension from the raw core banking customer table.
-    meta:
-      owner: core-banking-data-team
+    config:
+      meta:
+        owner: core-banking-data-team
     columns:
       - name: customer_id
         description: Surrogate-ready customer key.
-        tests:
+        data_tests:
           - not_null
           - unique
       - name: customer_status
         description: Normalized customer lifecycle status.
-        tests:
+        data_tests:
           - accepted_values:
               arguments:
                 values: ["active", "inactive", "blocked", "closed"]
       - name: onboarding_date
         description: Customer onboarding date.
-        tests:
+        data_tests:
           - not_null
   - name: stg_accounts
     description: Standardized deposit and current accounts owned by customers.
     columns:
       - name: account_id
         description: Unique account key.
-        tests:
+        data_tests:
           - not_null
           - unique
       - name: customer_id
         description: Customer that owns the account.
-        tests:
+        data_tests:
           - not_null
           - relationships:
               arguments:
@@ -39,7 +40,7 @@ models:
                 field: customer_id
       - name: account_status
         description: Normalized account status.
-        tests:
+        data_tests:
           - accepted_values:
               arguments:
                 values: ["active", "dormant", "closed", "frozen"]
@@ -48,26 +49,26 @@ models:
     columns:
       - name: transaction_id
         description: Unique transaction identifier.
-        tests:
+        data_tests:
           - not_null
           - unique
       - name: account_id
         description: Account linked to the transaction.
-        tests:
+        data_tests:
           - relationships:
               arguments:
                 to: ref('stg_accounts')
                 field: account_id
       - name: customer_id
         description: Customer linked to the transaction.
-        tests:
+        data_tests:
           - relationships:
               arguments:
                 to: ref('stg_customers')
                 field: customer_id
       - name: debit_credit_indicator
         description: Normalized debit or credit direction.
-        tests:
+        data_tests:
           - accepted_values:
               arguments:
                 values: ["debit", "credit"]
@@ -76,19 +77,19 @@ models:
     columns:
       - name: loan_id
         description: Unique loan identifier.
-        tests:
+        data_tests:
           - not_null
           - unique
       - name: customer_id
         description: Borrower customer identifier.
-        tests:
+        data_tests:
           - relationships:
               arguments:
                 to: ref('stg_customers')
                 field: customer_id
       - name: loan_status
         description: Normalized loan status.
-        tests:
+        data_tests:
           - accepted_values:
               arguments:
                 values: ["active", "closed", "defaulted", "overdue"]

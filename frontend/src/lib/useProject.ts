@@ -53,6 +53,7 @@ export function useSharedProject() {
 export function useProjectSummary(path: string | null) {
   const [name, setName] = useState<string | null>(null);
   const [mode, setMode] = useState<"manifest" | "static" | null>(null);
+  const [dbtVersion, setDbtVersion] = useState<string | null>(null);
 
   useEffect(() => {
     if (!path) {
@@ -65,6 +66,7 @@ export function useProjectSummary(path: string | null) {
       .then((p) => {
         setName(p.name);
         setMode(p.artifact_status?.mode ?? "static");
+        setDbtVersion(p.artifact_status?.dbt_version ?? null);
       })
       .catch(() => {
         setName(null);
@@ -72,5 +74,5 @@ export function useProjectSummary(path: string | null) {
       });
   }, [path]);
 
-  return { name, mode };
+  return { name, mode, dbtVersion };
 }

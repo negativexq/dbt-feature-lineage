@@ -5,6 +5,7 @@
  */
 
 const LAYER_COLORS: Record<string, string> = {
+  source: "var(--layer-source)",
   staging: "var(--layer-staging)",
   intermediate: "var(--layer-intermediate)",
   marts: "var(--layer-marts)",
@@ -58,16 +59,22 @@ export function StatusPill({
   projectName,
   group,
   mode,
+  dbtVersion,
 }: {
   projectName: string;
   group: string | null;
   mode: "manifest" | "static" | null;
+  /** dbt version that wrote the manifest, when known. */
+  dbtVersion?: string | null;
 }) {
   const dotColor = mode === "manifest" ? "var(--accent)" : "var(--layer-unknown)";
   return (
     <span className="inline-flex items-center gap-2 rounded-full border border-line bg-ink-900 px-3.5 py-2 font-mono text-sm text-text-hi">
       <span className="h-2 w-2 rounded-full" style={{ background: dotColor }} />
       {projectName} &middot; {group ?? "All"} &middot; {mode ?? "static"}
+      {mode === "manifest" && dbtVersion && (
+        <span className="text-text-lo">&middot; dbt {dbtVersion}</span>
+      )}
     </span>
   );
 }

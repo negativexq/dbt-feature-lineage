@@ -6,7 +6,9 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-Layer = Literal["staging", "intermediate", "marts", "unknown"]
+# "source" marks a raw dbt source() table column in the lineage graph;
+# dbt models themselves are only ever staging/intermediate/marts/unknown.
+Layer = Literal["source", "staging", "intermediate", "marts", "unknown"]
 DependencyType = Literal["ref", "source"]
 TransformationType = Literal[
     "direct",
@@ -51,6 +53,9 @@ class DbtModel(BaseModel):
     test_count: int = 0
     test_unique_ids: list[str] = Field(default_factory=list)
     model_group: str | None = None
+    # Documented column descriptions from schema YAML (manifest only),
+    # keyed by column name; columns without a description are omitted.
+    column_descriptions: dict[str, str] = Field(default_factory=dict)
 
     model_config = ConfigDict(populate_by_name=True)
 

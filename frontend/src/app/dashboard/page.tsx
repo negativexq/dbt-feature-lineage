@@ -16,6 +16,7 @@ import {
   healthColor,
 } from "@/components/ui";
 import type { ModelDagNode } from "@/lib/api";
+import { UpgradeReadinessCard } from "@/components/UpgradeReadinessCard";
 
 type CoverageKind = "documented" | "owned" | "tested";
 const COVERAGE_PANEL_KEY: Record<CoverageKind, string> = {
@@ -90,7 +91,7 @@ function Bar({
 
 export default function DashboardPage() {
   const { path, group, ready } = useSharedProject();
-  const { name: projectName, mode } = useProjectSummary(path);
+  const { name: projectName, mode, dbtVersion } = useProjectSummary(path);
   const [dag, setDag] = useState<ModelDagResponse | null>(null);
   const [health, setHealth] = useState<ModelHealth[] | null>(null);
   const [healthGeneratedAt, setHealthGeneratedAt] = useState<string | null>(null);
@@ -169,7 +170,7 @@ export default function DashboardPage() {
         eyebrow="dashboard --overview"
         title="Dashboard"
         caption="The project at a glance — scale, structure, and documentation coverage."
-        right={<StatusPill projectName={projectName ?? path.split("/").pop() ?? path} group={group} mode={mode} />}
+        right={<StatusPill projectName={projectName ?? path.split("/").pop() ?? path} group={group} mode={mode} dbtVersion={dbtVersion} />}
       />
       {error && <ErrorBanner message={error} />}
 
@@ -258,6 +259,8 @@ export default function DashboardPage() {
               )}
             </Card>
           )}
+
+          <UpgradeReadinessCard path={path} />
 
           <div className="grid grid-cols-2 gap-4">
             <Card>

@@ -1,0 +1,43 @@
+version: 2
+models:
+  - name: m1
+    tags: [a]
+    docs: {show: true}
+    meta: {owner: x}
+    columns:
+      - name: id
+        meta: {pii: true}
+        tags: [k]
+        tests:
+          - accepted_values:
+              values: [1, 2]
+          - relationships:
+              to: ref('m2')
+              field: id
+              severity: warn
+  - name: m2
+    config: {meta: {owner: y}}
+    columns:
+      - name: amt
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments: {values: [1]}
+              config: {severity: warn}
+sources:
+  - name: raw
+    tags: [s]
+    meta: {o: 1}
+    freshness: {warn_after: {count: 1, period: day}}
+    loaded_at_field: ts
+    tables:
+      - name: t
+        tags: [t]
+        loaded_at_field: ts
+        freshness: {warn_after: {count: 1, period: day}}
+        columns:
+          - name: c
+            meta: {a: 1}
+            data_tests:
+              - accepted_values:
+                  values: [1]

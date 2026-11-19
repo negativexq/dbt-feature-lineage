@@ -223,7 +223,7 @@ def test_build_project_lineage_end_to_end_raw_source_to_mart(chain_project: DbtP
     # model, into a single connected DiGraph).
     graph = build_project_lineage(chain_project)
 
-    source_node = ColumnNode(model="raw_banking.customers", column="customer_id", layer="unknown")
+    source_node = ColumnNode(model="raw_banking.customers", column="customer_id", layer="source")
     mart_node = ColumnNode(model="mart_customer_overview", column="customer_id", layer="marts")
 
     assert source_node in graph.nodes
@@ -493,3 +493,18 @@ def test_lineage_cache_key_differs_between_distinct_projects(
     manifest_project: DbtProject, static_project: DbtProject
 ) -> None:
     assert lineage_cache_key(manifest_project) != lineage_cache_key(static_project)
+
+
+def test_manifest_without_compiled_sql_still_resolves_source_leaves() -> None:
+    # `dbt parse` writes no compiled_code, so manifest-mode models are
+    # analyzed from raw_code, where source() becomes the static-mode
+    # placeholder (lending_raw__loan_applications). Those leaves must still
+    # be recognized as dbt sources rather than unknown tables.
+    root = Path(__file__).resolve().parent.parent / "examples" / "multi_domain_dbt"
+    project = load_dbt_project(root).model_copy(update={"source": "manifest"})
+
+    graph = build_project_lineage(project)
+
+    leaves = {node for node in graph.nodes if node.model == "lending_raw__loan_applications"}
+    assert leaves
+    assert {node.layer for node in leaves} == {"source"}

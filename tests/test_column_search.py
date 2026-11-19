@@ -84,12 +84,18 @@ def test_search_index_single_match_for_a_column_unique_to_one_model(
     manifest_graph: nx.DiGraph,
 ) -> None:
     # "last_name" only ever appears in stg_customers's own SELECT list --
-    # no other model in this fixture references it.
+    # no other model in this fixture references it. Its raw source column
+    # (the raw_banking.customers dbt source, which declares no columns) is
+    # traced as a source leaf since sqlglot 30.22, so it is indexed too;
+    # the dbt model column is still the only *model* match.
     index = build_search_index(manifest_graph)
 
     matches = index["last_name"]
 
-    assert matches == [ColumnNode(model="stg_customers", column="last_name", layer="staging")]
+    model_matches = [match for match in matches if match.layer != "source"]
+    assert model_matches == [
+        ColumnNode(model="stg_customers", column="last_name", layer="staging")
+    ]
 
 
 def test_search_index_reports_multiple_matches_for_an_ambiguous_column_name(
@@ -105,7 +111,7 @@ def test_search_index_reports_multiple_matches_for_an_ambiguous_column_name(
 
     assert len(matches) > 1
     assert set(matches) == {
-        ColumnNode(model="raw_banking.customers", column="customer_id", layer="unknown"),
+        ColumnNode(model="raw_banking.customers", column="customer_id", layer="source"),
         ColumnNode(model="stg_customers", column="customer_id", layer="staging"),
         ColumnNode(model="int_customer_activity", column="customer_id", layer="intermediate"),
         ColumnNode(model="mart_customer_overview", column="customer_id", layer="marts"),
@@ -141,7 +147,7 @@ def test_get_upstream_chain_linear_from_raw_source_to_mart(chain_graph: nx.DiGra
 
     # A strict linear chain has exactly one valid topological order.
     assert chain == [
-        ColumnNode(model="raw_banking.customers", column="customer_id", layer="unknown"),
+        ColumnNode(model="raw_banking.customers", column="customer_id", layer="source"),
         ColumnNode(model="int_customer_activity", column="customer_id", layer="intermediate"),
         ColumnNode(model="mart_customer_overview", column="customer_id", layer="marts"),
     ]
@@ -161,7 +167,7 @@ def test_get_upstream_chain_for_a_terminal_raw_source_is_just_itself(
 ) -> None:
     # A raw source column has no ancestors of its own -- the chain is a
     # single-element list, not an error.
-    target = ColumnNode(model="raw_banking.customers", column="customer_id", layer="unknown")
+    target = ColumnNode(model="raw_banking.customers", column="customer_id", layer="source")
 
     chain = get_upstream_chain(chain_graph, target)
 
@@ -186,8 +192,8 @@ def test_get_upstream_chain_branching_includes_both_parallel_ancestors(
     assert chain[-1] == target
     assert len(chain) == 3
     assert set(chain[:-1]) == {
-        ColumnNode(model="raw_banking.customers", column="customer_id", layer="unknown"),
-        ColumnNode(model="raw_banking.legacy_customers", column="customer_id", layer="unknown"),
+        ColumnNode(model="raw_banking.customers", column="customer_id", layer="source"),
+        ColumnNode(model="raw_banking.legacy_customers", column="customer_id", layer="source"),
     }
 
 
@@ -274,7 +280,7 @@ def test_get_downstream_chain_branching_includes_both_parallel_descendants(
     # (via coalesce(a.customer_id, b.customer_id)) and stg_customers
     # independently -- a genuine multi-child DAG from this root, not a
     # single downstream path.
-    target = ColumnNode(model="raw_banking.customers", column="customer_id", layer="unknown")
+    target = ColumnNode(model="raw_banking.customers", column="customer_id", layer="source")
 
     chain = get_downstream_chain(branching_graph, target)
 
@@ -286,7 +292,7 @@ def test_get_downstream_chain_branching_includes_both_parallel_descendants(
 
 
 def test_get_downstream_chain_descendants_follow_the_target(chain_graph: nx.DiGraph) -> None:
-    target = ColumnNode(model="raw_banking.customers", column="customer_id", layer="unknown")
+    target = ColumnNode(model="raw_banking.customers", column="customer_id", layer="source")
 
     chain = get_downstream_chain(chain_graph, target)
     target_index = chain.index(target)
@@ -300,7 +306,7 @@ def test_get_downstream_chain_subgraph_edges_carry_edge_data(chain_graph: nx.DiG
     # raw_banking.customers.customer_id fans out to stg_customers (1 edge)
     # and to int_customer_activity -> mart_customer_overview (2 edges) --
     # 3 edges total across mixed-depth branches.
-    target = ColumnNode(model="raw_banking.customers", column="customer_id", layer="unknown")
+    target = ColumnNode(model="raw_banking.customers", column="customer_id", layer="source")
     chain = get_downstream_chain(chain_graph, target)
 
     subgraph = chain_graph.subgraph(chain)
@@ -536,7 +542,7 @@ def test_summarize_downstream_impact_excludes_the_target_itself(
     sample_banking_lineage_graph: nx.DiGraph,
 ) -> None:
     target = ColumnNode(
-        model="core_banking__transactions", column="transaction_timestamp", layer="unknown"
+        model="core_banking__transactions", column="transaction_timestamp", layer="source"
     )
     chain = get_downstream_chain(sample_banking_lineage_graph, target)
 
@@ -555,7 +561,7 @@ def test_summarize_downstream_impact_dedupes_a_model_appearing_many_times(
     # mart_customer_features appears 19 times in this chain (19 of its
     # own columns), but that's ONE model, not 19.
     target = ColumnNode(
-        model="core_banking__transactions", column="transaction_timestamp", layer="unknown"
+        model="core_banking__transactions", column="transaction_timestamp", layer="source"
     )
     chain = get_downstream_chain(sample_banking_lineage_graph, target)
 
@@ -571,7 +577,7 @@ def test_summarize_downstream_impact_sorts_all_impacted_by_descending_column_cou
     sample_banking_lineage_graph: nx.DiGraph,
 ) -> None:
     target = ColumnNode(
-        model="core_banking__transactions", column="transaction_timestamp", layer="unknown"
+        model="core_banking__transactions", column="transaction_timestamp", layer="source"
     )
     chain = get_downstream_chain(sample_banking_lineage_graph, target)
 
@@ -596,7 +602,7 @@ def test_summarize_downstream_impact_ties_are_broken_alphabetically(
     # this chain -- descending-count sort alone doesn't define their
     # relative order, so the tiebreaker must be deterministic.
     target = ColumnNode(
-        model="core_banking__transactions", column="transaction_timestamp", layer="unknown"
+        model="core_banking__transactions", column="transaction_timestamp", layer="source"
     )
     chain = get_downstream_chain(sample_banking_lineage_graph, target)
 
@@ -653,7 +659,7 @@ def test_summarize_downstream_impact_on_multi_domain_dbt(
     multi_domain_lineage_graph: nx.DiGraph,
 ) -> None:
     target = ColumnNode(
-        model="lending_raw__loan_applications", column="requested_amount", layer="unknown"
+        model="lending_raw__loan_applications", column="requested_amount", layer="source"
     )
     chain = get_downstream_chain(multi_domain_lineage_graph, target)
 
